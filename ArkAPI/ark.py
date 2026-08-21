@@ -13,6 +13,8 @@ import logging
 
 from FlowAPI.core import Connection
 from FlowAPI.core import create_instance as _create_instance
+from FlowAPI.core import (
+    create_gateway_instance_inner as _create_gateway_instance_inner)
 
 # --------- STATIC ---------
 
@@ -37,8 +39,7 @@ class ArkResult:
     message : str
         Lesbarer Text, immer eine Zeichenkette. Bei Fehlern das
         details-Feld der API, sonst die Beschreibung des Codes aus der
-        Spezifikation. Ist details kein Text, sondern ein Objekt, gilt
-        die Beschreibung aus der Spezifikation
+        Spezifikation. Ist details ein Objekt, steht es hier als JSON
     error : str
         Maschinenlesbare Fehlerkennung der API, 1:1 uebernommen, z. B.
         INVALID_HASH. Welche Werte ein Endpunkt liefern kann, steht in
@@ -99,7 +100,9 @@ class Ark(Connection):
         """Verbindung zum Ark-Server herstellen
 
         Wird von ArkAPI.create_instance() aufgerufen und ueberschreibt
-        Connection.connect() der FlowAPI mit festem Port.
+        Connection.connect() der FlowAPI mit festem Port. Der
+        Gateway-Weg nutzt diese Methode nicht, sondern connect2() mit
+        Port 8006.
 
         Parameters
         ----------
@@ -127,18 +130,24 @@ class Ark(Connection):
         EditShareHTTPError mit den Pflichtfeldern code, error und
         details.
 
-        details ist laut Schema nicht immer eine Zeichenkette. Bei
-        POST /restore/hashes und Code 404 ist es ein Objekt mit der
-        Liste der betroffenen Dateien. Ein solches details wird hier
-        verworfen, damit message eine Zeichenkette bleibt und auf den
-        Text der Spezifikation zurueckfaellt. Der vollstaendige Body
-        bleibt ueber last_response() erreichbar.
+        Das Schema deklariert details als Zeichenkette zur Anzeige beim
+        Menschen. Das Beispiel zum 404 von POST /restore/hashes
+        widerspricht dem eigenen Schema und zeigt dort ein Objekt mit
+        der Liste der gescheiterten Hashes. Kommt ein solches Objekt,
+        wird es als JSON serialisiert. So bleibt message immer eine
+        Zeichenkette und es geht nichts verloren. Leere Werte wie null
+        oder ein leeres Objekt werden dabei zu einem leeren Text, damit
+        message auf die Beschreibung des Codes zurueckfallen kann.
+
+        error dagegen wird verworfen, wenn es keine Zeichenkette ist.
+        Das Feld ist die maschinenlesbare Kennung und wird mit ==
+        verglichen, ein JSON-Text darin waere irrefuehrend.
 
         Returns
         -------
         tuple
-            (error, details), beide str. Beide leer wenn der Body kein
-            EditShareHTTPError war oder details kein Text ist
+            (error, details), beide str. error ist leer wenn der Body
+            kein EditShareHTTPError war oder die Kennung kein Text ist
         """
 
         body = self.lastResponse()
@@ -159,7 +168,8 @@ class Ark(Connection):
         if not isinstance(error, str):
             error = ""
         if not isinstance(details, str):
-            details = ""
+            details = json.dumps(
+                details, ensure_ascii=False) if details else ""
 
         return error, details
 
@@ -363,11 +373,11 @@ class Ark(Connection):
             Es gilt alles oder nichts: ein einziger nicht
             restaurierbarer Hash laesst den ganzen Auftrag scheitern
 
-        Nur hier ist das Feld details der API ein Objekt und keine
-        Zeichenkette: es listet unter files jeden gescheiterten Hash
-        mit eigener Begruendung. message bleibt darum der Text aus der
-        Spezifikation. Die Liste steht im Rohbody, erreichbar ueber
-        last_response()
+        Nur hier zeigt die Spezifikation fuer details ein Objekt statt
+        der laut Schema vorgeschriebenen Zeichenkette: es listet unter
+        files jeden gescheiterten Hash mit eigener Begruendung. message
+        traegt dieses Objekt dann als JSON. Wer die Eintraege einzeln
+        braucht, liest den Rohbody ueber last_response()
         """
 
         return self._request(
@@ -1119,33 +1129,86 @@ class Ark(Connection):
 
 
 # --------- FACTORY ---------
-def create_instance(ip_addr, username, password):
-    """Verbundene Ark-Instanz erzeugen
+
+
+def create_instance(username, password, ip_addr):
+    """Direkt verbundene Ark-Instanz erzeugen
 
     Parameters
     ----------
-    ip_addr : str
-        IP oder Hostname des Ark-Servers (Pflicht)
     username : str
         Benutzername fuer BasicAuth (Pflicht)
     password : str
         Passwort fuer BasicAuth (Pflicht)
+    ip_addr : str
+        IP oder Hostname des Ark-Servers (Pflicht)
 
     Returns
     -------
     Ark
-        Verbundene Instanz auf Port 8000
+        Verbundene Instanz, HTTPS auf Port 8000
+
+    Notes
+    -----
+    Die Reihenfolge der Argumente folgt create_gateway_instance() und
+    damit dem Muster der Toolbox. core.create_instance() erwartet den
+    Host zuerst, das dreht diese Funktion um
 
     Examples
     --------
     >>> import ArkAPI
-    >>> ark = ArkAPI.create_instance("10.0.0.5", "user", "pass")
+    >>> ark = ArkAPI.create_instance(
+    ...     os.environ.get("FLOW_USER"),
+    ...     os.environ.get("FLOW_PASSWORD"),
+    ...     os.environ.get("FLOW_HOST"))
     """
 
     return _create_instance(Ark, ip_addr, username, password)
 
 
+def create_gateway_instance(username, password, ip_addr=None):
+    """Ark-Instanz ueber den lokalen Gateway erzeugen
+
+    Parameters
+    ----------
+    username : str
+        Benutzername fuer BasicAuth (Pflicht)
+    password : str
+        Passwort fuer BasicAuth (Pflicht)
+    ip_addr : str
+        IP oder Hostname des Gateways. Fehlt der Wert, nimmt core
+        EDITSHARE_DOCKER_GATEWAY aus der Umgebung und sonst 127.0.0.1
+
+    Returns
+    -------
+    Ark
+        Verbundene Instanz, HTTPS auf Port 8006
+
+    Notes
+    -----
+    Der Gateway erwartet die Pfade unter /api/v2/ark. Das setzt
+    do_request() in core selbst davor, sobald setUseGateway(True)
+    gesetzt ist. Aus /restore/backups wird /api/v2/ark/restore/backups
+
+    Examples
+    --------
+    >>> import ArkAPI
+    >>> ark = ArkAPI.create_gateway_instance(
+    ...     os.environ.get("FLOW_USER"),
+    ...     os.environ.get("FLOW_PASSWORD"),
+    ...     os.environ.get("FLOW_HOST"))
+    """
+
+    return _create_gateway_instance_inner(
+        Ark, username, password, ip_addr)
+
+
 # --------- KEEP THIS LINE AT THE END ---------
+
+# Toolbox filtert auf "tb_", hier gibt es keinen Prefix. Stattdessen die
+# Namensraeume des Moduls: so bleiben json, logging, Connection und die
+# beiden Fabriken aus core draussen. Deren Alias mit "_" ist Pflicht,
+# denn create_gateway_instance_inner beginnt sonst mit "create_".
 __all__ = [
     name
     for name in dir()

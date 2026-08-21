@@ -110,33 +110,88 @@ Die Komfort-Funktionen erben die Werte der Funktion, die sie aufrufen: `restore_
 }
 ```
 
-Ein solches `details` wird verworfen, `message` trägt dann den Text aus der Spezifikation. So bleibt `message` in jedem Fall eine Zeichenkette und `result.message.strip()` läuft nicht ins Leere. Die Liste der gescheiterten Hashes steht im Rohbody:
+Das ist eine Inkonsistenz der Spezifikation: dasselbe Schema deklariert `details` als `type: string` mit der Beschreibung „A string which can be presented to human users“. Nur das Beispiel zeigt ein Objekt.
+
+Kommt ein Objekt, wird es als JSON serialisiert. `message` ist damit in jedem Fall eine Zeichenkette, `result.message.strip()` läuft nicht ins Leere, und fürs Protokoll reicht `message` allein:
 
 ```python
 result = ark.restore_hashes({"hashes": hashes, "destination": ziel})
 
+if result.code == 404:
+    logging.error("Restore gescheitert: %s", result.message)
+    # -> {"files": [{"flow_hash": "2:0000...", "error": "Hash not ..."}]}
+```
+
+Wer die Einträge einzeln braucht, liest den Rohbody — der ist zeichengleich zur Serverantwort:
+
+```python
 if result.code == 404:
     roh = json.loads(ark.last_response())
     for eintrag in roh["details"]["files"]:
         print(eintrag["flow_hash"], eintrag["error"])
 ```
 
+Das Objekt landet **nicht** in `data`. `data` behält bei jedem Fehler den Leerwert der Funktion — und der ist je Endpunkt eine Liste, ein Dict, ein String oder `None`. Ein Objekt dort würde den Typ von `data` je Statuscode wechseln lassen.
+
+`error` wird umgekehrt behandelt: ist es keine Zeichenkette, bleibt es leer. Das Feld wird mit `==` gegen Kennungen verglichen, ein JSON-Text darin wäre irreführend.
+
 ## Verbinden
+
+Es gibt zwei Wege, wie in der Toolbox. Beide nehmen die Argumente in derselben Reihenfolge: **Benutzer, Passwort, Host**.
 
 ```python
 import ArkAPI
 
-ark = ArkAPI.create_instance("10.0.0.5", "user", "pass")
+ark = ArkAPI.create_gateway_instance(
+    os.environ.get("FLOW_USER"),
+    os.environ.get("FLOW_PASSWORD"),
+    os.environ.get("FLOW_HOST"),
+)
 ```
 
-Das ist der einzige vorgesehene Weg. Ark läuft fest auf Port 8000.
+Direkt auf den Ark-Server, wenn kein Gateway davor liegt:
 
-| Aufruf | Pflicht |
-| ---------- | -------- |
-| `ArkAPI.create_instance(ip_addr, username, password)` | `ip_addr`, `username`, `password` |
-| `ark.connect(ip_addr, username, password)` | `ip_addr`, `username`, `password` |
+```python
+ark = ArkAPI.create_instance(
+    os.environ.get("FLOW_USER"),
+    os.environ.get("FLOW_PASSWORD"),
+    os.environ.get("FLOW_HOST"),
+)
+```
 
-`ArkAPI.create_instance()` ist der einzige Weg zu einer Instanz — die Klasse `Ark` hat keine eigene Fabrikmethode. `connect()` wird von der Fabrik aufgerufen und ist selten direkt nötig.
+| Aufruf | Pflicht | Port |
+| ---------- | -------- | ---- |
+| `ArkAPI.create_gateway_instance(username, password, ip_addr=None)` | `username`, `password` | 8006 |
+| `ArkAPI.create_instance(username, password, ip_addr)` | alle drei | 8000 |
+| `ark.connect(ip_addr, username, password)` | alle drei | 8000 |
+
+Beim Gateway ist der Host optional: fehlt er, nimmt `FlowAPI.core` die Variable `EDITSHARE_DOCKER_GATEWAY` und sonst `127.0.0.1`. Beim direkten Weg ist er Pflicht.
+
+Die Umgebungsvariablen liest das aufrufende Projekt, nicht `ArkAPI` — genauso wie in der Toolbox. Das Paket kennt keine Variablennamen.
+
+`connect()` wird von `create_instance()` aufgerufen und ist selten direkt nötig. Der Gateway-Weg benutzt es nicht, sondern `connect2()` aus `core`.
+
+### Warum die Reihenfolge von core abweicht
+
+`FlowAPI.core` ist hier selbst nicht einheitlich:
+
+```python
+def create_instance(api, host_ip, username, password)              # Host zuerst
+def create_gateway_instance_inner(api, username, password, ip_addr)  # Host zuletzt
+```
+
+Beide Fabriken hier nehmen `(username, password, ip_addr)`, damit der Wechsel zwischen ihnen kein Umstellen der Argumente verlangt. `create_instance()` dreht die Reihenfolge intern zurück.
+
+### Was der Gateway mit den Pfaden macht
+
+Bei `setUseGateway(True)` setzt `do_request()` in `core` vor jeden Pfad `/api/v2/` plus den Dienstnamen — hier `ark`:
+
+```
+GET /restore/backups          ->  GET /api/v2/ark/restore/backups
+GET /api/tape/library/tapes   ->  GET /api/v2/ark/api/tape/library/tapes
+```
+
+Der zweite Fall sieht doppelt aus, entsteht aber so, weil dieser eine Ark-Endpunkt sein `/api` schon in der Spezifikation trägt. Ob der Gateway diesen Pfad durchreicht, ist hier nicht geprüft — dazu braucht es einen laufenden Gateway.
 
 Sitzt ein Reverse Proxy vor dem Server, kann der antworten, bevor Ark den Request sieht. Solche Antworten tragen einen Code, den die jeweilige Funktion nicht aufführt — siehe [Ausführlicher Aufruf](#ausführlicher-aufruf).
 
@@ -568,9 +623,9 @@ Gibt eine `list` zurück, leer bei Disk-Backups.
 
 `POST /filestatus/` dokumentiert kein 404. Kommt trotzdem eins, meldet `message` den Code als für diesen Endpunkt undokumentiert.
 
-Bei `restore_hashes()` und 404 ist das `details`-Feld der API ein Objekt. `message` fällt dann auf den Spec-Text zurück, die Einzelheiten stehen in `last_response()` — siehe [message ist immer ein String](#message-ist-immer-ein-string).
+Bei `restore_hashes()` und 404 ist das `details`-Feld der API ein Objekt, obwohl das Schema eine Zeichenkette vorschreibt. `message` trägt es dann als JSON — siehe [message ist immer ein String](#message-ist-immer-ein-string).
 
-Der Ark-Port 8000 steht als Zahl in `connect()`. `FlowAPI.core` kennt dafür keine Konstante.
+Der Ark-Port 8000 steht als Zahl in `connect()`. `FlowAPI.core` kennt dafür keine Konstante. Den Gateway-Port 8006 setzt `core` selbst als `GATEWAY_PORT`.
 
 ## Interne Funktionen
 
@@ -589,7 +644,7 @@ __all__ = [
 ]
 ```
 
-Das sind vier Namen: `Ark`, `ArkResult`, `ARK_VERSION` und `create_instance`. Das Paket kennt keine Konstanten — Statuscodes sind Zahlen, Fehlerkennungen und Aufzählungswerte sind Zeichenketten.
+Das sind fünf Namen: `Ark`, `ArkResult`, `ARK_VERSION`, `create_instance` und `create_gateway_instance`. Der Alias mit `_` beim Import von `create_gateway_instance_inner` ist Pflicht — ohne ihn landet auch dieser Name im `__all__`, weil er mit `create_` beginnt. Das Paket kennt keine Konstanten — Statuscodes sind Zahlen, Fehlerkennungen und Aufzählungswerte sind Zeichenketten.
 
 **Neue öffentliche Namen müssen einen dieser Prefixe tragen**, sonst tauchen
 sie im Paket nicht auf.
