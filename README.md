@@ -1,6 +1,6 @@
-# ark
+# ARK
 
-Wrapper für die EditShare Ark API. Setzt auf `FlowAPI.core` auf, gleicher Stil wie `FlowAPI.metadata`. Eine Datei: `ark/ark.py`.
+Wrapper für die EditShare Ark API.
 
 ## Installation
 
@@ -18,7 +18,7 @@ dependencies = [
 
 ## Rückgabe-Prinzip
 
-Jede Methode gibt ein `ArkResult` mit genau vier Attributen zurück. Der Statuscode wird unverändert durchgereicht, ausgewertet wird im Caller.
+Jede Methode gibt ein `ArkResult` mit vier Attributen zurück. Der Statuscode wird unverändert durchgereicht, ausgewertet wird im Caller.
 
 ```python
 result = ark.get_file_status("2:d41d8cd98f00b204e9800998ecf8427e")
@@ -45,26 +45,48 @@ Vorsicht bei den Komfort-Funktionen: `search_all_backups()` schickt pro Seite ei
 
 ### Ausführlicher Aufruf
 
-Die API kennt genau vier Codes: **200, 204, 400, 404**. Kommt etwas anderes an, hat nicht Ark geantwortet, sondern Gateway, Auth oder ein abgebrochener Socket. `code == 0` heißt: keine verwertbare Antwort, siehe [Bekannte Fallstricke](#bekannte-fallstricke).
+Die API kennt genau vier Codes: **200, 204, 400, 404**. Welche davon eine Funktion liefern kann, steht bei jeder Funktion in diesem Dokument und in ihrem Docstring. Codes werden als Zahl verglichen, es gibt keine Code-Konstanten.
 
 ```python
-if result.code not in ARK_CODES:
-    raise RuntimeError(result.message)
-
 if result.code == 200:
     ...
 elif result.code == 404:
     ...
 elif result.code == 400:
     print(result.error, result.message)
+else:
+    raise RuntimeError(result.message)
 ```
 
-Konstanten dafür: `ARK_OK`, `ARK_NO_CONTENT`, `ARK_BAD_REQUEST`, `ARK_NOT_FOUND`, `ARK_CODES`, `ARK_SUCCESS_CODES`, `ERROR_INVALID_HASH`, `ERROR_INVALID_DESTINATION`, `ERROR_INVALID_SOURCE`, `ERROR_MISSING_REQUIRED_FIELD`.
+Kommt ein Code, den die Funktion nicht aufführt, hat nicht Ark geantwortet, sondern Gateway, Auth oder ein abgebrochener Socket. `message` sagt das dann ausdrücklich:
+
+```
+Statuscode 502 ist fuer diesen Endpunkt nicht dokumentiert: <html>...
+```
+
+`code == 0` heißt: keine verwertbare Antwort, siehe [Bekannte Fallstricke](#bekannte-fallstricke).
+
+### Fehlerkennungen
+
+Vier Konstanten bleiben — die Werte des `error`-Feldes. Sie stehen nicht für Codes, sondern für Ursachen, und ein und derselbe Code 400 kann alle vier bedeuten:
+
+```python
+from ark import ERROR_INVALID_HASH, ERROR_INVALID_DESTINATION
+from ark import ERROR_INVALID_SOURCE, ERROR_MISSING_REQUIRED_FIELD
+
+if result.code == 400:
+    if result.error == ERROR_INVALID_HASH:
+        ...             # Hash in der CSV korrigieren
+    elif result.error == ERROR_INVALID_DESTINATION:
+        ...             # Restore-Ziel falsch konfiguriert
+```
+
+Als Konstanten und nicht als Zeichenkette, weil ein Tippfehler in `"INVALID_HSAH"` sonst stillschweigend nie zutrifft und der Zweig einfach nie läuft. Bei einer Konstante schlägt er beim Import an.
 
 ## Verbinden
 
 | Methode | Pflicht | Optional |
-|---|---|---|
+| ---------- | -------- | ------------- |
 | `Ark.create_instance(ip_addr, username, password)` | `ip_addr`, `username`, `password` | – |
 | `Ark.create_gateway_instance(username, password)` | `username`, `password` | `ip_addr` (Standard: `EDITSHARE_DOCKER_GATEWAY`, sonst `127.0.0.1`) |
 | `ark.connect(ip_addr, username, password)` | `ip_addr`, `username`, `password` | – |
@@ -79,11 +101,11 @@ ark = Ark.create_instance("10.0.0.5", "user", "pass")
 ark = Ark.create_gateway_instance("user", "pass")
 ```
 
-`connect()` wird von `create_instance()` aufgerufen und ist selten direkt nötig. Über das Gateway kann ein Reverse Proxy antworten, bevor Ark den Request sieht — solche Antworten tragen einen Code, der nicht in `ARK_CODES` steht.
+`connect()` wird von `create_instance()` aufgerufen und ist selten direkt nötig. Über das Gateway kann ein Reverse Proxy antworten, bevor Ark den Request sieht — solche Antworten tragen einen Code, den die Funktion nicht aufführt.
 
 ---
 
-# Die zehn Endpunkt-Funktionen
+## Die zehn Endpunkt-Funktionen
 
 ## get_backups()
 
@@ -98,7 +120,7 @@ for backup in result.data:
 ```
 
 | Code | Bedeutung | `data` |
-|---|---|---|
+| ------ | ----------- | -------- |
 | 200 | A list of backups managed by Ark available for restoration. | `list`, ggf. leer |
 
 ## restore_backups(data)
@@ -106,7 +128,7 @@ for backup in result.data:
 `POST /restore/restoreBackups` — Backups auf ein Storage-Ziel zurückspielen.
 
 | Argument | Pflicht | Beschreibung |
-|---|---|---|
+| --- | --- | --- |
 | `data` | ja | Restore-Kommando. Pflichtfelder `backups` und `target_data`, optional `storage_goals` und `restoreTime` |
 
 ```python
@@ -118,7 +140,7 @@ print(result.data)   # "restorejob_sovh0C"
 ```
 
 | Code | Bedeutung | `data` |
-|---|---|---|
+| --- | --- | --- |
 | 200 | Restoration job queued. | Job-ID als `str` |
 
 Der Service antwortet mit einem reinen JSON-String, nicht mit einem Objekt. Bequemer geht es mit `restore_backup()`.
@@ -128,7 +150,7 @@ Der Service antwortet mit einem reinen JSON-String, nicht mit einem Objekt. Bequ
 `POST /restore/hashes` — einzelne Dateien anhand ihrer FLOW-Hashes zurückspielen.
 
 | Argument | Pflicht | Beschreibung |
-|---|---|---|
+| --- | --- | --- |
 | `data` | ja | Restore-Kommando. Pflichtfelder `files` und `destination`, optional `source` |
 
 ```python
@@ -142,7 +164,7 @@ result = ark.restore_hashes({
 ```
 
 | Code | Bedeutung | `data` |
-|---|---|---|
+| --- | --- | --- |
 | 200 | Hash-based restore job created successfully. | `dict` mit `session_guid` |
 | 400 | Bad Request - Invalid hash format, invalid destination, or malformed request. `error` nennt die Ursache | `{}` |
 | 404 | Not Found - One or more hashes cannot be restored. Kein Backup vorhanden oder Tape offline, `details` nennt die Hashes | `{}` |
@@ -162,7 +184,7 @@ print(result.data["progress_complete"], "von", result.data["progress_estimated"]
 ```
 
 | Code | Bedeutung | `data` |
-|---|---|---|
+| --- | --- | --- |
 | 200 | Status of the file hash database | `dict` |
 
 ## get_file_status(flow_hash)
@@ -170,7 +192,7 @@ print(result.data["progress_complete"], "von", result.data["progress_estimated"]
 `GET /filestatus/{FileHash}` — Ark Backup-Status einer Datei.
 
 | Argument | Pflicht | Beschreibung |
-|---|---|---|
+| --- | --- | --- |
 | `flow_hash` | ja | FLOW-Hash, Version 0 (`<md5>`), 1 (`1:<md5>`) oder 2 (`2:<md5>`). Erzeugen mit dem CLI-Kommando `flow-hash` |
 
 ```python
@@ -181,7 +203,7 @@ for match in result.data:
 ```
 
 | Code | Bedeutung | `data` |
-|---|---|---|
+| --- | --- | --- |
 | 200 | A list of statuses for files managed by Ark — Ark hält mindestens eine Kopie | `list` |
 | 400 | Hash is invalid — passt nicht auf `(1:\|2:\|)[A-Fa-f0-9]{32}` | `[]` |
 | 404 | No matches found — Ark hält keine Kopie | `[]` |
@@ -193,14 +215,11 @@ for match in result.data:
 `HEAD /filestatus/{FileHash}` — nur prüfen, ob Ark eine Kopie hat. Die günstige Variante von `get_file_status()`: kein Body, nur der Statuscode. Für Schleifen über viele Dateien deutlich sparsamer.
 
 | Argument | Pflicht | Beschreibung |
-|---|---|---|
+| --- | --- | --- |
 | `flow_hash` | ja | FLOW-Hash, Version 0, 1 oder 2 |
 
 ```python
 result = ark.has_file_status("2:d41d8cd98f00b204e9800998ecf8427e")
-
-if result.code not in ARK_CODES:
-    raise RuntimeError(result.message)      # nicht loeschen, Antwort unklar
 
 if result.code == 204:
     os.remove(original)                     # Ark hat eine Kopie
@@ -208,10 +227,12 @@ elif result.code == 404:
     print("keine Kopie in Ark")
 elif result.code == 400:
     print("Hash ungueltig:", result.message)
+else:
+    raise RuntimeError(result.message)      # nicht loeschen, Antwort unklar
 ```
 
 | Code | Bedeutung | `data` |
-|---|---|---|
+| --- | --- | --- |
 | 204 | One or more matches found | `None` |
 | 400 | Invalid hash | `None` |
 | 404 | No matches found | `None` |
@@ -223,7 +244,7 @@ Diese Operation liefert **kein 200**. Ein Vergleich auf 200 geht hier immer schi
 `POST /filestatus/` — Massenabfrage für viele Hashes.
 
 | Argument | Pflicht | Beschreibung |
-|---|---|---|
+| --- | --- | --- |
 | `hash_list` | ja | Liste von FLOW-Hashes, Version 0, 1 oder 2 |
 
 ```python
@@ -235,7 +256,7 @@ fehlt = [h for h in angefragt if h not in gefunden]
 ```
 
 | Code | Bedeutung | `data` |
-|---|---|---|
+| --- | --- | --- |
 | 200 | A list of statuses for files managed by Ark | `list`, ggf. leer |
 | 400 | Hash is invalid — mindestens ein Hash der Liste ist ungültig | `[]` |
 
@@ -253,7 +274,7 @@ print(result.data["indexed"], "von", result.data["total"], "Backups indexiert")
 ```
 
 | Code | Bedeutung | `data` |
-|---|---|---|
+| --- | --- | --- |
 | 200 | Disk backup indexing status | `dict` mit `total`, `indexed`, `indexing`, `not_indexed`, `needs_indexing`, `total_files` |
 
 Nur indexierte Disk-Backups sind über `search_backups()` auffindbar, daher vor einer Suche prüfen.
@@ -263,10 +284,10 @@ Nur indexierte Disk-Backups sind über `search_backups()` auffindbar, daher vor 
 `POST /backup/search` — Dateien in den indexierten Backups suchen.
 
 | Argument | Pflicht | Standard | Beschreibung |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `search_pattern` | ja | – | Dateiname oder Muster. Bei `search_mode="flow_hash"` ein Hash der Version 2 |
-| `search_mode` | nein | `"contains"` | `exact`, `contains`, `wildcard` oder `flow_hash` — siehe `SEARCH_*` |
-| `backup_type` | nein | beide | `disk` oder `tape` — siehe `SOURCE_DISK`, `SOURCE_TAPE` |
+| `search_mode` | nein | `"contains"` | `"exact"`, `"contains"`, `"wildcard"` oder `"flow_hash"` |
+| `backup_type` | nein | beide | `"disk"` oder `"tape"` |
 | `limit` | nein | `100` | maximale Trefferzahl, 1 bis 10000 |
 | `offset` | nein | `0` | Anzahl zu überspringender Treffer |
 
@@ -280,7 +301,7 @@ for hit in result.data["results"]:
 ```
 
 | Code | Bedeutung | `data` |
-|---|---|---|
+| --- | --- | --- |
 | 200 | Search results with pagination information | `dict` mit `total_matches`, `limit`, `offset`, `results` |
 | 400 | Hash is invalid — bei `search_mode="flow_hash"` mit ungültigem Hash | `{}` |
 
@@ -296,12 +317,12 @@ print(result.data["timestamp"], len(result.data["tapes"]), "Tapes")
 ```
 
 | Code | Bedeutung | `data` |
-|---|---|---|
+| --- | --- | --- |
 | 200 | Tape library status with complete inventory | `dict` mit `tapes` und `timestamp` |
 
 ---
 
-# Komfort-Funktionen
+## Komfort-Funktionen
 
 Setzen auf den zehn Endpunkt-Funktionen auf und kennen keinen eigenen Endpunkt. Ihre Statuscodes sind daher die der jeweils aufgerufenen Funktion.
 
@@ -310,10 +331,10 @@ Setzen auf den zehn Endpunkt-Funktionen auf und kennen keinen eigenen Endpunkt. 
 Ein einzelnes Backup zurückspielen, baut den Body für `restore_backups()`.
 
 | Argument | Pflicht | Standard | Beschreibung |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `backup_id` | ja | – | ID aus `get_backups()` |
 | `target` | ja | – | Restore-Ziel, siehe unten |
-| `space_type` | nein | `"ms"` | `ms`, `ps`, `priv`, `fe`, `es` oder `flow` — siehe `SPACE_*` |
+| `space_type` | nein | `"ms"` | `"ms"`, `"ps"`, `"priv"`, `"fe"`, `"es"` oder `"flow"` |
 | `rename` | nein | – | neuer Name für den restaurierten Space |
 | `cumulative` | nein | `False` | ganze Incremental-Kette bis `backup_id`, nur Ark Tape |
 | `storage_goal` | nein | – | EFS Storage Goal für restaurierte Media Spaces |
@@ -340,7 +361,7 @@ Codes: 200 wie `restore_backups()`.
 Eine Liste von FLOW-Hashes in einen Media Space zurückspielen, baut den Body für `restore_hashes()`.
 
 | Argument | Pflicht | Standard | Beschreibung |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `hashes` | ja | – | Liste von Hashes, alternativ Liste von Dicts wie `restore_hashes()` sie erwartet |
 | `mediaspace` | ja | – | Name des Ziel-Media-Space |
 | `restore_path` | nein | `"/"` | Pfad im Media Space, wird angelegt falls nicht vorhanden |
@@ -370,7 +391,7 @@ Codes: 200, 400, 404 wie `restore_hashes()`.
 Den Backup-Index nach einem FLOW-Hash durchsuchen, ruft `search_backups()` im Modus `flow_hash` auf.
 
 | Argument | Pflicht | Standard | Beschreibung |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `flow_hash` | ja | – | Hash der **Version 2**, also `2:<md5>` |
 | `backup_type` | nein | beide | `disk` oder `tape` |
 | `limit` | nein | `100` | maximale Trefferzahl |
@@ -388,7 +409,7 @@ Codes: 200, 400 wie `search_backups()`.
 Alle Treffer einer Suche seitenweise holen, ruft `search_backups()` bis `total_matches` erreicht ist.
 
 | Argument | Pflicht | Standard | Beschreibung |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `search_pattern` | ja | – | Dateiname oder Muster |
 | `search_mode` | nein | `"contains"` | `exact`, `contains`, `wildcard` oder `flow_hash` |
 | `backup_type` | nein | beide | `disk` oder `tape` |
@@ -424,7 +445,7 @@ Codes: 200 wie `get_tape_library_status()`.
 Ein Tape-Volume über seinen Barcode finden, filtert `get_tapes()`.
 
 | Argument | Pflicht | Beschreibung |
-|---|---|---|
+| --- | --- | --- |
 | `barcode` | ja | Barcode des Tapes, z. B. `"001234L5"` |
 
 ```python
@@ -442,7 +463,7 @@ Codes: 200 wie `get_tape_library_status()`.
 Ein einzelnes Backup über seine ID finden, filtert `get_backups()`.
 
 | Argument | Pflicht | Beschreibung |
-|---|---|---|
+| --- | --- | --- |
 | `backup_id` | ja | die Backup-ID |
 
 ```python
@@ -458,7 +479,7 @@ Codes: 200 wie `get_backups()`.
 Alle Backups eines Media Space über den Namen finden, filtert `get_backups()`.
 
 | Argument | Pflicht | Beschreibung |
-|---|---|---|
+| --- | --- | --- |
 | `space_name` | ja | Name des Media Space |
 
 ```python
@@ -476,7 +497,7 @@ Codes: 200 wie `get_backups()`.
 Dasselbe über die UUID.
 
 | Argument | Pflicht | Beschreibung |
-|---|---|---|
+| --- | --- | --- |
 | `space_uuid` | ja | UUID des Media Space |
 
 ```python
@@ -490,7 +511,7 @@ Codes: 200 wie `get_backups()`.
 Barcodes der Tapes aus einem `filestatus`-Eintrag sammeln. Reine Auswertung, kein Request — daher `@staticmethod` und ohne `ArkResult`.
 
 | Argument | Pflicht | Beschreibung |
-|---|---|---|
+| --- | --- | --- |
 | `file_status` | ja | ein Eintrag aus der `data` von `get_file_status()` oder `get_file_statuses()` |
 
 ```python
@@ -506,7 +527,11 @@ Gibt eine `list` zurück, leer bei Disk-Backups.
 
 `code == 0` mit einer Meldung über ungültiges JSON fängt einen Bug der FlowAPI ab: bricht die Verbindung nach einem erfolgreichen Request weg, lässt `core.do_request()` den alten Statuscode stehen und legt eine Klartextmeldung in den Body. `getThatReturnsObj()` schickt die durch `json.loads()` und wirft einen `JSONDecodeError`. Der Wrapper nutzt `getThatReturnsObj()` deshalb nicht.
 
-`POST /filestatus/` braucht den abschließenden Slash. `HEAD /filestatus/{FileHash}` liefert 204, nie 200.
+`POST /filestatus/` braucht den abschließenden Slash. `HEAD /filestatus/{FileHash}` liefert 204, nie 200 — und 204 bedeutet dort **Treffer gefunden**, nicht "nichts da".
+
+`POST /filestatus/` dokumentiert kein 404. Kommt trotzdem eins, meldet `message` den Code als für diesen Endpunkt undokumentiert.
+
+Der Ark-Port 8000 steht als Zahl in `connect()`. `FlowAPI.core` kennt dafür keine Konstante.
 
 ## Interne Funktionen
 
@@ -514,44 +539,21 @@ Alles mit `_` am Anfang ist intern und kann sich ohne Vorwarnung ändern: `_read
 
 ## Exportliste
 
-`ark/ark.py` erzeugt sein `__all__` in der letzten Zeile selbst, wie `toolbox`.
-Da es hier keinen Prefix wie `tb_` gibt, filtert die Zeile auf die
-Namensräume des Moduls:
+`ark/ark.py` erzeugt sein `__all__` in der letzten Zeile selbst.
 
 ```python
 # --------- KEEP THIS LINE AT THE END ---------
 __all__ = [
     name
     for name in dir()
-    if name.startswith(
-        ("Ark", "ARK_", "ERROR_", "SEARCH_", "SOURCE_", "SPACE_", "STORAGE_")
-    )
+    if name.startswith(("Ark", "ARK_", "ERROR_"))
 ]
 ```
 
+Das sind sieben Namen: `Ark`, `ArkResult`, `ARK_VERSION` und die vier `ERROR_*`.
+
 **Neue öffentliche Namen müssen einen dieser Prefixe tragen**, sonst tauchen
-sie im Paket nicht auf. Ein `not name.startswith("_")` ginge hier nicht: das
-würde `json`, `logging`, `Connection`, `create_instance` und
-`create_gateway_instance_inner` mitexportieren.
-
-`ark/__init__.py` bleibt dadurch schlank:
-
-```python
-from .ark import *
-from .ark import ARK_VERSION
-
-__version__ = ARK_VERSION
-```
-
-Nach einem `from ark import *` zeigt der Name `ark` beim Aufrufer auf das
-Submodul `ark.ark`, nicht mehr auf das Paket. Praktisch ändert das nichts,
-weil beide dieselben Namen tragen — `ARK_VERSION` und `__version__` sind
-deshalb in beiden gesetzt. Wer es eindeutig will, nimmt
-`from ark import Ark`.
-
-## Version
-
-`ARK_VERSION` in `ark/ark.py`, wird von `pyproject.toml` dynamisch gelesen.
+sie im Paket nicht auf.
 
 ## Referenz
 

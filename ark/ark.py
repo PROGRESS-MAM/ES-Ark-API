@@ -22,38 +22,10 @@ from FlowAPI.core import (
 ARK_VERSION = "0.1.0"
 __version__ = ARK_VERSION
 
-ARK_PORT = 8000
-
-ARK_OK = 200
-ARK_NO_CONTENT = 204
-ARK_BAD_REQUEST = 400
-ARK_NOT_FOUND = 404
-
-ARK_CODES = (ARK_OK, ARK_NO_CONTENT, ARK_BAD_REQUEST, ARK_NOT_FOUND)
-ARK_SUCCESS_CODES = (ARK_OK, ARK_NO_CONTENT)
-
 ERROR_INVALID_HASH = "INVALID_HASH"
 ERROR_INVALID_DESTINATION = "INVALID_DESTINATION"
 ERROR_INVALID_SOURCE = "INVALID_SOURCE"
 ERROR_MISSING_REQUIRED_FIELD = "MISSING_REQUIRED_FIELD"
-
-SOURCE_DISK = "disk"
-SOURCE_TAPE = "tape"
-
-STORAGE_DISK = "ark_disk"
-STORAGE_TAPE = "ark_tape"
-
-SEARCH_EXACT = "exact"
-SEARCH_CONTAINS = "contains"
-SEARCH_WILDCARD = "wildcard"
-SEARCH_FLOW_HASH = "flow_hash"
-
-SPACE_MEDIA = "ms"
-SPACE_PROJECT = "ps"
-SPACE_PRIVATE = "priv"
-SPACE_FILE_EXCHANGE = "fe"
-SPACE_SETTINGS = "es"
-SPACE_FLOW = "flow"
 
 
 # --------- RESULT ---------
@@ -77,8 +49,8 @@ class ArkResult:
         Maschinenlesbare Fehlerkennung der API, z. B. INVALID_HASH.
         Leer wenn die Antwort kein Fehler-Objekt war
 
-    Mehr gibt es nicht. Ob der Code vom dokumentierten Ark-Vertrag
-    stammt, klaert ein "code in ARK_CODES" im Aufrufer.
+    Mehr gibt es nicht. Welche Codes ein Endpunkt kennt, steht im
+    Docstring der jeweiligen Methode und in der README.
     """
 
     def __init__(self, code, *, data=None, message="", error=""):
@@ -170,8 +142,8 @@ class Ark(Connection):
         Notes
         -----
         Auf diesem Weg kann ein Reverse Proxy antworten, bevor Ark den
-        Request sieht. Solche Antworten tragen einen Code, der nicht in
-        ARK_CODES steht.
+        Request sieht. Solche Antworten tragen einen Code, den der
+        Docstring des Endpunkts nicht auffuehrt.
         """
 
         return create_gateway_instance_inner(Ark, username, password, ip_addr)
@@ -190,9 +162,14 @@ class Ark(Connection):
             Benutzername fuer BasicAuth (Pflicht)
         password : str
             Passwort fuer BasicAuth (Pflicht)
+
+        Notes
+        -----
+        Ark laeuft fest auf Port 8000. FlowAPI.core kennt dafuer keine
+        Konstante.
         """
 
-        return Connection.connect2(self, ip_addr, ARK_PORT, username, password)
+        return Connection.connect2(self, ip_addr, 8000, username, password)
 
     # --------- INTERN ---------
 
@@ -243,13 +220,17 @@ class Ark(Connection):
             Optionaler Request-Body
         codes : dict
             Die von diesem Endpunkt dokumentierten Codes und ihre
-            Bedeutung laut Spezifikation
+            Bedeutung laut Spezifikation. Ein Code, der hier fehlt, gilt
+            fuer diesen Endpunkt als undokumentiert
         default : object
             Nutzdaten, wenn kein verwertbarer Body vorliegt
 
         Returns
         -------
         ArkResult
+            Der Statuscode wird nur durchgereicht, nicht bewertet. Bei
+            200 steht der geparste Body in data, sonst der Leerwert.
+            Laesst sich ein Body bei 200 nicht parsen, ist code 0
         """
 
         if verb == "GET":
@@ -265,30 +246,17 @@ class Ark(Connection):
         code = self.lastReturnCode()
         error, details = self._read_error()
 
-        if code not in ARK_CODES:
+        if code != 200:
             return ArkResult(
                 code,
                 data=default,
                 error=error,
                 message=details
-                or "Undokumentierter Statuscode, Antwort stammt nicht vom "
-                "Ark-Vertrag: {}".format(str(reply or "").strip()[:160]),
-            )
-
-        if code not in ARK_SUCCESS_CODES:
-            return ArkResult(
-                code,
-                data=default,
-                error=error,
-                message=details or codes.get(code, ""),
-            )
-
-        if code == ARK_NO_CONTENT:
-            return ArkResult(
-                code,
-                data=default,
-                error=error,
-                message=codes.get(code, ""),
+                or codes.get(code, "")
+                or "Statuscode {} ist fuer diesen Endpunkt nicht "
+                "dokumentiert: {}".format(
+                    code, str(reply or "").strip()[:160]
+                ),
             )
 
         payload = default
@@ -298,8 +266,7 @@ class Ark(Connection):
             except (ValueError, TypeError):
                 # Typischer Fall: die Verbindung ist weggebrochen, core
                 # hat den alten Statuscode stehen gelassen und eine
-                # Klartext-Meldung in den Body gelegt. Der Code luegt,
-                # darum 0 statt code - 0 steht nicht in ARK_CODES.
+                # Klartext-Meldung in den Body gelegt. Der Code luegt.
                 return ArkResult(
                     0,
                     data=default,
@@ -311,7 +278,7 @@ class Ark(Connection):
                 )
 
         return ArkResult(
-            code, data=payload, error=error, message=codes.get(code, "")
+            code, data=payload, error=error, message=codes.get(200, "")
         )
 
     # --------- RESTORE ---------
@@ -678,7 +645,7 @@ class Ark(Connection):
     def search_backups(
         self,
         search_pattern,
-        search_mode=SEARCH_CONTAINS,
+        search_mode="contains",
         *,
         backup_type=None,
         limit=100,
@@ -694,11 +661,11 @@ class Ark(Connection):
             Dateiname oder Muster (Pflicht). Bei search_mode flow_hash
             ein FLOW-Hash der Version 2
         search_mode : str
-            Optional, Standard contains. Erlaubt sind exact, contains,
-            wildcard und flow_hash. Siehe die SEARCH_-Konstanten
+            Optional, Standard "contains". Erlaubt sind "exact",
+            "contains", "wildcard" und "flow_hash"
         backup_type : str
-            Optional. disk oder tape, ohne Angabe werden beide
-            durchsucht. Siehe SOURCE_DISK und SOURCE_TAPE
+            Optional. "disk" oder "tape", ohne Angabe werden beide
+            durchsucht
         limit : int
             Optional, Standard 100. Maximale Trefferzahl, 1 bis 10000
         offset : int
@@ -778,7 +745,7 @@ class Ark(Connection):
         backup_id,
         target,
         *,
-        space_type=SPACE_MEDIA,
+        space_type="ms",
         rename=None,
         cumulative=False,
         storage_goal=None,
@@ -800,8 +767,8 @@ class Ark(Connection):
             z. B. "esa_IBN1e---es-master---/efs/efs_1". Bei allen
             anderen Space-Typen genuegt die ESA-Gruppe, z. B. "esa_HiNbl"
         space_type : str
-            Optional, Standard ms. Erlaubt sind ms, ps, priv, fe, es
-            und flow. Siehe die SPACE_-Konstanten
+            Optional, Standard "ms". Erlaubt sind "ms", "ps", "priv",
+            "fe", "es" und "flow"
         rename : str
             Optional. Neuer Name fuer den restaurierten Space
         cumulative : bool
@@ -875,11 +842,11 @@ class Ark(Connection):
         space_uuid : str
             Optional. UUID des Ziel-Media-Space
         ark_sources : list
-            Optional. Quellen fuer die Suche, z. B. ["disk", "tape"].
-            Siehe SOURCE_DISK und SOURCE_TAPE
+            Optional. Quellen fuer die Suche, erlaubt sind "disk" und
+            "tape", z. B. ["disk", "tape"]
         prefer_source : str
             Optional. Bevorzugte Quelle wenn die Datei in beiden liegt,
-            disk oder tape
+            "disk" oder "tape"
 
         Returns
         -------
@@ -950,7 +917,7 @@ class Ark(Connection):
 
         return self.search_backups(
             flow_hash,
-            SEARCH_FLOW_HASH,
+            "flow_hash",
             backup_type=backup_type,
             limit=limit,
         )
@@ -974,7 +941,7 @@ class Ark(Connection):
         """
 
         result = self.get_tape_library_status()
-        if result.code == ARK_OK and isinstance(result.data, dict):
+        if result.code == 200 and isinstance(result.data, dict):
             result.data = result.data.get("tapes", [])
         else:
             result.data = []
@@ -1004,7 +971,7 @@ class Ark(Connection):
 
         result = self.get_tapes()
         match = {}
-        if result.code == ARK_OK:
+        if result.code == 200:
             for tape in result.data or []:
                 if tape.get("barcode") == barcode:
                     match = tape
@@ -1092,7 +1059,7 @@ class Ark(Connection):
         """
 
         result = self.get_backups()
-        if result.code != ARK_OK:
+        if result.code != 200:
             result.data = []
             return result
 
@@ -1106,7 +1073,7 @@ class Ark(Connection):
     def search_all_backups(
         self,
         search_pattern,
-        search_mode=SEARCH_CONTAINS,
+        search_mode="contains",
         *,
         backup_type=None,
         page_size=1000,
@@ -1155,7 +1122,7 @@ class Ark(Connection):
                 limit=page_size,
                 offset=offset,
             )
-            if result.code != ARK_OK:
+            if result.code != 200:
                 result.data = results
                 return result
 
@@ -1186,7 +1153,5 @@ class Ark(Connection):
 __all__ = [
     name
     for name in dir()
-    if name.startswith(
-        ("Ark", "ARK_", "ERROR_", "SEARCH_", "SOURCE_", "SPACE_", "STORAGE_")
-    )
+    if name.startswith(("Ark", "ARK_", "ERROR_"))
 ]

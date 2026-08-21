@@ -21,3 +21,15 @@ version = { attr = "ark.ark.ARK_VERSION" }
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["ark*"]
+
+[tool.pylint.main]
+max-public-methods = 25
+max-args = 8
+max-module-lines = 1500
+
+[tool.pylint."messages control"]
+disable = [
+    "consider-using-f-string",
+    "arguments-differ",
+    "duplicate-code",
+]
