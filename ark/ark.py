@@ -3,10 +3,25 @@ Wrapper fuer die EditShare Ark API.
 
 Spezifikation:
 https://developers.editshare.com/?urls.primaryName=EditShare%20Ark
+
+Die API kennt genau vier Statuscodes: 200, 204, 400 und 404. Jede
+oeffentliche Methode gibt ein ArkResult zurueck, das den Code
+unveraendert durchreicht. Die Auswertung macht der Aufrufer.
+
+Kommt ein Code, den die Spezifikation nicht kennt, ist ArkResult.code
+dieser Code und ArkResult.from_ark False - die Antwort stammt dann nicht
+vom dokumentierten Ark-Vertrag, sondern z. B. vom Gateway, von der
+Authentifizierung oder von einem abgebrochenen Socket.
 """
+
+# format() statt f-Strings, damit der Stil zur FlowAPI passt
+# pylint: disable=consider-using-f-string
+# Bleibt bewusst eine einzige Datei
+# pylint: disable=too-many-lines
 
 # --------- IMPORTS ---------
 
+import json
 import logging
 
 from FlowAPI.core import (
@@ -17,7 +32,7 @@ from FlowAPI.core import (
 
 # --------- KONSTANTEN ---------
 
-ARK_VERSION = "0.1.0"
+ARK_VERSION = "1.0.0"
 
 # Auch hier gesetzt, damit die Version verfuegbar bleibt wenn das
 # Submodul das Paket schattet (Stern-Import)
@@ -26,6 +41,25 @@ __version__ = ARK_VERSION
 # FlowAPI.core kennt keinen Port fuer Ark, daher hier definiert.
 # Siehe servers-Abschnitt der ark.yaml: https://{server}:8000/
 ARK_PORT = 8000
+
+# Die einzigen Statuscodes, die die Ark-Spezifikation dokumentiert
+ARK_OK = 200
+ARK_NO_CONTENT = 204
+ARK_BAD_REQUEST = 400
+ARK_NOT_FOUND = 404
+
+ARK_CODES = (ARK_OK, ARK_NO_CONTENT, ARK_BAD_REQUEST, ARK_NOT_FOUND)
+
+# Codes, bei denen ein Nutzdaten-Body erwartet wird
+ARK_SUCCESS_CODES = (ARK_OK, ARK_NO_CONTENT)
+
+# Maschinenlesbare Fehlerkennungen aus dem error-Feld der API.
+# Die Spezifikation nennt das Feld ausdruecklich fuer Verzweigungen
+# im aufrufenden Code.
+ERROR_INVALID_HASH = "INVALID_HASH"
+ERROR_INVALID_DESTINATION = "INVALID_DESTINATION"
+ERROR_INVALID_SOURCE = "INVALID_SOURCE"
+ERROR_MISSING_REQUIRED_FIELD = "MISSING_REQUIRED_FIELD"
 
 # Ark Backup-Quellen bzw. Storage-Typen
 SOURCE_DISK = "disk"
@@ -50,11 +84,96 @@ SPACE_SETTINGS = "es"
 SPACE_FLOW = "flow"
 
 
+# --------- ERGEBNIS ---------
+
+
+class ArkResult:
+    """Ergebnis eines Ark-Requests
+
+    Reicht den Statuscode unveraendert durch. Welche Codes eine Methode
+    liefern kann und was sie bedeuten, steht in deren Docstring.
+
+    Attributes
+    ----------
+    code : int
+        Der HTTP-Statuscode der Antwort. 0 wenn keine Verbindung zustande
+        kam
+    data : object
+        Die Nutzdaten. Bei 400 und 404 der jeweilige Leerwert der Methode
+    message : str
+        Lesbarer Text. Bei Fehlern das details-Feld der API, sonst die
+        Beschreibung des Codes aus der Spezifikation
+    error : str
+        Maschinenlesbare Fehlerkennung der API, z. B. INVALID_HASH.
+        Leer wenn die Antwort kein Fehler-Objekt war
+    from_ark : bool
+        True wenn code einer der vier dokumentierten Codes ist. False
+        heisst: die Antwort kam nicht vom dokumentierten Ark-Vertrag
+    raw : str
+        Der unveraenderte Response-Body
+    verb : str
+        Das HTTP-Verb des Requests
+    endpoint : str
+        Der angefragte Pfad
+    """
+
+    # pylint: disable=too-many-instance-attributes,too-many-arguments
+
+    def __init__(
+        self,
+        code,
+        *,
+        data=None,
+        message="",
+        error="",
+        raw="",
+        verb="",
+        endpoint="",
+    ):
+        self.code = int(code)
+        self.data = data
+        self.message = message
+        self.error = error
+        self.from_ark = self.code in ARK_CODES
+        self.raw = raw
+        self.verb = verb
+        self.endpoint = endpoint
+
+    def __str__(self):
+        return "{} {}".format(self.code, self.message)
+
+    def __repr__(self):
+        return "ArkResult(code={}, message={!r})".format(
+            self.code, self.message
+        )
+
+
 # --------- KLASSE ---------
 
 
 class Ark(Connection):
-    """Kapselt die Endpunkte des Ark-Service"""
+    """Kapselt die zehn Operationen des Ark-Service
+
+    Oeffentliche Endpunkt-Methoden, je eine pro Operation der
+    Spezifikation:
+
+        get_backups                     GET  /restore/backups
+        restore_backups                 POST /restore/restoreBackups
+        restore_hashes                  POST /restore/hashes
+        get_file_hash_database_status   GET  /filestatus/database
+        get_file_status                 GET  /filestatus/{FileHash}
+        has_file_status                 HEAD /filestatus/{FileHash}
+        get_file_statuses               POST /filestatus/
+        get_disk_search_status          GET  /backup/disk/search/status
+        search_backups                  POST /backup/search
+        get_tape_library_status         GET  /api/tape/library/tapes
+
+    Dazu Komfort-Methoden, die auf diesen zehn aufsetzen und keinen
+    eigenen Endpunkt kennen: restore_backup, restore_files_by_hash,
+    search_by_flow_hash, search_all_backups, find_backup,
+    find_backups_by_space_name, find_backups_by_space_uuid, get_tapes,
+    find_tape und tapes_from_file_status.
+    """
 
     # pylint: disable=too-many-public-methods
 
@@ -66,20 +185,196 @@ class Ark(Connection):
 
     @staticmethod
     def create_instance(ip_addr, username, password):
-        """Direkte Verbindung zum Ark-Server aufbauen"""
+        """Direkte Verbindung zum Ark-Server aufbauen
+
+        Parameters
+        ----------
+        ip_addr : str
+            IP oder Hostname des Ark-Servers (Pflicht)
+        username : str
+            Benutzername fuer BasicAuth (Pflicht)
+        password : str
+            Passwort fuer BasicAuth (Pflicht)
+
+        Returns
+        -------
+        Ark
+            Verbundene Instanz auf Port 8000
+        """
 
         return create_instance(Ark, ip_addr, username, password)
 
     @staticmethod
     def create_gateway_instance(username, password, ip_addr=None):
-        """Verbindung ueber das lokale Gateway aufbauen"""
+        """Verbindung ueber das lokale FLOW-Gateway aufbauen
+
+        Parameters
+        ----------
+        username : str
+            Benutzername fuer BasicAuth (Pflicht)
+        password : str
+            Passwort fuer BasicAuth (Pflicht)
+        ip_addr : str
+            Optional. Adresse des Gateways. Ohne Angabe wird die
+            Umgebungsvariable EDITSHARE_DOCKER_GATEWAY genutzt,
+            Standard 127.0.0.1
+
+        Returns
+        -------
+        Ark
+            Verbundene Instanz auf dem Gateway-Port 8006
+
+        Notes
+        -----
+        Auf diesem Weg kann ein Reverse Proxy antworten, bevor Ark den
+        Request sieht. Solche Antworten haben from_ark False.
+        """
 
         return create_gateway_instance_inner(Ark, username, password, ip_addr)
 
     def connect(self, ip_addr, username, password):
-        """Verbindung zum Service-Server herstellen"""
+        """Verbindung zum Ark-Server herstellen
+
+        Wird von create_instance() aufgerufen und ueberschreibt
+        Connection.connect() der FlowAPI.
+
+        Parameters
+        ----------
+        ip_addr : str
+            IP oder Hostname des Ark-Servers (Pflicht)
+        username : str
+            Benutzername fuer BasicAuth (Pflicht)
+        password : str
+            Passwort fuer BasicAuth (Pflicht)
+        """
 
         return Connection.connect2(self, ip_addr, ARK_PORT, username, password)
+
+    # --------- INTERN ---------
+
+    def _read_error(self):
+        """Fehlerobjekt der API aus dem letzten Body lesen
+
+        Die Spezifikation definiert fuer jeden Fehler dasselbe Schema
+        EditShareHTTPError mit den Pflichtfeldern code, error und
+        details.
+
+        Returns
+        -------
+        tuple
+            (error, details). Beide leer wenn der Body kein
+            EditShareHTTPError war
+        """
+
+        body = self.lastResponse()
+        if not body:
+            return "", ""
+
+        try:
+            payload = json.loads(body)
+        except (ValueError, TypeError):
+            return "", ""
+
+        if not isinstance(payload, dict):
+            return "", ""
+
+        return payload.get("error", ""), payload.get("details", "")
+
+    def _request(self, verb, endpoint, data=None, *, codes, default=None):
+        """Request ausfuehren und den Statuscode unveraendert durchreichen
+
+        Anders als getThatReturnsObj() aus FlowAPI.core wird der Body
+        nicht blind durch json.loads() geschickt. Bricht die Verbindung
+        weg, laesst core den alten Statuscode stehen und legt eine
+        Klartext-Meldung in den Body - das wuerde sonst als
+        JSONDecodeError durchschlagen.
+
+        Parameters
+        ----------
+        verb : str
+            GET, POST oder HEAD
+        endpoint : str
+            Pfad ohne Host
+        data : object
+            Optionaler Request-Body
+        codes : dict
+            Die von diesem Endpunkt dokumentierten Codes und ihre
+            Bedeutung laut Spezifikation
+        default : object
+            Nutzdaten, wenn kein verwertbarer Body vorliegt
+
+        Returns
+        -------
+        ArkResult
+        """
+
+        if verb == "GET":
+            reply = self.get(endpoint)
+        elif verb == "POST":
+            reply = self.post(endpoint, data)
+        elif verb == "HEAD":
+            # core kennt kein head(), do_request() ist aber verb-agnostisch
+            reply = self.do_request("HEAD", endpoint, "")
+        else:
+            raise ValueError("nicht unterstuetztes Verb: {}".format(verb))
+
+        code = self.lastReturnCode()
+        error, details = self._read_error()
+        common = {
+            "raw": reply or "",
+            "verb": verb,
+            "endpoint": endpoint,
+            "error": error,
+        }
+
+        # Undokumentierter Code - nicht deuten, nur benennen
+        if code not in ARK_CODES:
+            return ArkResult(
+                code,
+                data=default,
+                message=details
+                or "Undokumentierter Statuscode, Antwort stammt nicht vom "
+                "Ark-Vertrag: {}".format(str(reply or "").strip()[:160]),
+                **common
+            )
+
+        # Dokumentierter Fehler - details der API hat Vorrang
+        if code not in ARK_SUCCESS_CODES:
+            return ArkResult(
+                code,
+                data=default,
+                message=details or codes.get(code, ""),
+                **common
+            )
+
+        # 204 hat per HTTP keinen Body
+        if code == ARK_NO_CONTENT:
+            return ArkResult(
+                code, data=default, message=codes.get(code, ""), **common
+            )
+
+        payload = default
+        if reply and str(reply).strip():
+            try:
+                payload = json.loads(reply)
+            except (ValueError, TypeError):
+                # Typischer Fall: die Verbindung ist weggebrochen, core
+                # hat den alten Statuscode stehen gelassen und eine
+                # Klartext-Meldung in den Body gelegt. Der Code luegt,
+                # also from_ark ueber code=0 auf False ziehen.
+                return ArkResult(
+                    0,
+                    data=default,
+                    message="Antwort ist kein gueltiges JSON, Statuscode {} "
+                    "unglaubwuerdig (Verbindungsabbruch?): {}".format(
+                        code, str(reply).strip()[:160]
+                    ),
+                    **common
+                )
+
+        return ArkResult(
+            code, data=payload, message=codes.get(code, ""), **common
+        )
 
     # --------- RESTORE ---------
 
@@ -90,43 +385,29 @@ class Ark(Connection):
 
         Returns
         -------
-        list
-            Backups auf Ark Disk und Ark Tape. Jeder Eintrag enthaelt
-            u. a. backup_id, backup_type, date, media_space_name,
-            media_space_uuid und destination_name.
+        ArkResult
+            data ist die Liste der Backups auf Ark Disk und Ark Tape.
+            Jeder Eintrag enthaelt u. a. backup_id, backup_type, date,
+            media_space_name, media_space_uuid und destination_name
+
+        Notes
+        -----
+        Dokumentierte Statuscodes:
+
+        200
+            A list of backups managed by Ark available for restoration.
+            data ist die Liste, bei keinen Backups leer
         """
 
-        reply = self.getThatReturnsObj("/restore/backups")
-        if not reply:
-            return []
-        return reply
-
-    def find_backups_by_space_name(self, space_name):
-        """Alle Backups eines Media Space ueber den Namen finden"""
-
-        return [
-            backup
-            for backup in self.get_backups()
-            if backup.get("media_space_name") == space_name
-        ]
-
-    def find_backups_by_space_uuid(self, space_uuid):
-        """Alle Backups eines Media Space ueber die UUID finden"""
-
-        return [
-            backup
-            for backup in self.get_backups()
-            if backup.get("media_space_uuid") == str(space_uuid)
-        ]
-
-    def find_backup(self, backup_id):
-        """Ein einzelnes Backup ueber seine ID finden"""
-
-        for backup in self.get_backups():
-            if backup.get("backup_id") == backup_id:
-                return backup
-
-        return {}
+        return self._request(
+            "GET",
+            "/restore/backups",
+            codes={
+                200: "A list of backups managed by Ark available for "
+                "restoration."
+            },
+            default=[],
+        )
 
     def restore_backups(self, data):
         """Backups aus Ark auf ein Storage-Ziel zurueckspielen
@@ -136,8 +417,8 @@ class Ark(Connection):
         Parameters
         ----------
         data : dict
-            Das Restore-Kommando. Pflicht sind backups und target_data,
-            optional storage_goals und restoreTime, z. B.
+            Das Restore-Kommando (Pflicht). Pflichtfelder backups und
+            target_data, optional storage_goals und restoreTime, z. B.
 
                 {
                     "backups": [{"backup_id": "ark.tapeserver_f541..."}],
@@ -148,13 +429,412 @@ class Ark(Connection):
 
         Returns
         -------
-        str
-            ID des neuen Restore-Jobs, z. B. "restorejob_sovh0C".
-            False wenn der Request fehlgeschlagen ist.
+        ArkResult
+            data ist die ID des neuen Restore-Jobs, z. B.
+            "restorejob_sovh0C". Der Service antwortet mit einem reinen
+            JSON-String, nicht mit einem Objekt
+
+        Notes
+        -----
+        Dokumentierte Statuscodes:
+
+        200
+            Restoration job queued. data ist die Job-ID
         """
 
-        # Der Service antwortet mit einem reinen JSON-String, kein Objekt
-        return self.postThatReturnsObj("/restore/restoreBackups", data)
+        return self._request(
+            "POST",
+            "/restore/restoreBackups",
+            data,
+            codes={200: "Restoration job queued."},
+            default="",
+        )
+
+    def restore_hashes(self, data):
+        """Einzelne Dateien anhand ihrer FLOW-Hashes zurueckspielen
+
+        POST /restore/hashes
+
+        Parameters
+        ----------
+        data : dict
+            Das Restore-Kommando (Pflicht). Pflichtfelder files und
+            destination, optional source, z. B.
+
+                {
+                    "files": [
+                        {
+                            "flow_hash": "2:d41d8cd9...",
+                            "restore_path": "restored_files/",
+                        }
+                    ],
+                    "destination": {"mediaspace": "MyMediaSpace"},
+                }
+
+        Returns
+        -------
+        ArkResult
+            data ist bei 200 das Antwortobjekt mit session_guid, sonst
+            ein leeres dict
+
+        Notes
+        -----
+        Dokumentierte Statuscodes:
+
+        200
+            Hash-based restore job created successfully. data enthaelt
+            session_guid zum Verfolgen des Jobs
+        400
+            Bad Request - Invalid hash format, invalid destination, or
+            malformed request. error nennt die Ursache, z. B.
+            INVALID_HASH, INVALID_DESTINATION, INVALID_SOURCE oder
+            MISSING_REQUIRED_FIELD
+        404
+            Not Found - One or more hashes cannot be restored. Entweder
+            liegt zu mindestens einem Hash kein Backup vor, oder das
+            benoetigte Tape ist offline. details nennt die betroffenen
+            Hashes. Es gilt alles oder nichts: ein einziger nicht
+            restaurierbarer Hash laesst den ganzen Auftrag scheitern
+        """
+
+        return self._request(
+            "POST",
+            "/restore/hashes",
+            data,
+            codes={
+                200: "Hash-based restore job created successfully.",
+                400: "Bad Request - Invalid hash format, invalid "
+                "destination, or malformed request.",
+                404: "Not Found - One or more hashes cannot be restored.",
+            },
+            default={},
+        )
+
+    # --------- FILESTATUS ---------
+
+    def get_file_hash_database_status(self):
+        """Status des Hash-Imports in die Ark-Datenbank abfragen
+
+        GET /filestatus/database
+
+        Returns
+        -------
+        ArkResult
+            data enthaelt status (importing, complete oder error),
+            progress_complete und progress_estimated
+
+        Notes
+        -----
+        Dokumentierte Statuscodes:
+
+        200
+            Status of the file hash database. data ist das Statusobjekt
+        """
+
+        return self._request(
+            "GET",
+            "/filestatus/database",
+            codes={200: "Status of the file hash database"},
+            default={},
+        )
+
+    def get_file_status(self, flow_hash):
+        """Ark Backup-Status einer Datei anhand ihres Hashes abfragen
+
+        GET /filestatus/{FileHash}
+
+        Parameters
+        ----------
+        flow_hash : str
+            Ein FLOW-Hash (Pflicht). Version 0 ("<md5>"), Version 1
+            ("1:<md5>") und Version 2 ("2:<md5>") werden unterstuetzt.
+            Siehe CLI-Kommando: flow-hash
+
+        Returns
+        -------
+        ArkResult
+            data ist bei 200 die Liste der Treffer mit hash,
+            storage_type, job_id, job_time, file_id, pathname, filename,
+            space_uuid, space_name und tapes, sonst eine leere Liste
+
+        Notes
+        -----
+        Dokumentierte Statuscodes:
+
+        200
+            A list of statuses for files managed by Ark. Ark haelt
+            mindestens eine Kopie
+        400
+            Hash is invalid. Der Hash passt nicht auf das Muster
+            (1:|2:|)[A-Fa-f0-9]{32}
+        404
+            No matches found. Ark haelt keine Kopie dieser Datei
+
+        Achtung: 404 ist eine Fachauskunft, kein Transportfehler. Wer
+        daran eine Loeschentscheidung haengt, muss 400 und 404
+        unterscheiden - beide liefern eine leere data
+        """
+
+        url = "/filestatus/" + self.safe_url_string(str(flow_hash))
+        return self._request(
+            "GET",
+            url,
+            codes={
+                200: "A list of statuses for files managed by Ark",
+                400: "Hash is invalid",
+                404: "No matches found",
+            },
+            default=[],
+        )
+
+    def has_file_status(self, flow_hash):
+        """Nur pruefen ob Ark eine Kopie hat, ohne Details zu holen
+
+        HEAD /filestatus/{FileHash}
+
+        Die guenstige Variante von get_file_status(): der Service
+        antwortet ohne Body, nur mit dem Statuscode. Fuer Schleifen ueber
+        viele Dateien deutlich sparsamer.
+
+        Parameters
+        ----------
+        flow_hash : str
+            Ein FLOW-Hash (Pflicht), Version 0, 1 oder 2
+
+        Returns
+        -------
+        ArkResult
+            data ist immer None, HEAD liefert keinen Body. Die Auskunft
+            steckt allein im Statuscode
+
+        Notes
+        -----
+        Dokumentierte Statuscodes:
+
+        204
+            One or more matches found. Ark haelt mindestens eine Kopie
+        400
+            Invalid hash. Der Hash passt nicht auf das Muster
+        404
+            No matches found. Ark haelt keine Kopie dieser Datei
+
+        Diese Operation liefert kein 200. Ein Vergleich auf 200 geht hier
+        also immer schief - auf 204 pruefen
+        """
+
+        url = "/filestatus/" + self.safe_url_string(str(flow_hash))
+        return self._request(
+            "HEAD",
+            url,
+            codes={
+                204: "One or more matches found",
+                400: "Invalid hash",
+                404: "No matches found",
+            },
+        )
+
+    def get_file_statuses(self, hash_list):
+        """Ark Backup-Status fuer eine Liste von Hashes abfragen
+
+        POST /filestatus/
+
+        Parameters
+        ----------
+        hash_list : list
+            Liste von FLOW-Hashes (Pflicht), Version 0, 1 oder 2
+
+        Returns
+        -------
+        ArkResult
+            data ist bei 200 die Liste der Treffer, siehe
+            get_file_status(), sonst eine leere Liste
+
+        Notes
+        -----
+        Dokumentierte Statuscodes:
+
+        200
+            A list of statuses for files managed by Ark. Die Liste kann
+            leer sein, wenn zu keinem Hash eine Kopie vorliegt
+        400
+            Hash is invalid. Mindestens ein Hash der Liste passt nicht
+            auf das Muster
+
+        Diese Operation kennt kein 404. Hashes ohne Kopie fehlen
+        einfach im Ergebnis, ein Abgleich mit hash_list zeigt also,
+        welche Dateien nicht in Ark liegen
+        """
+
+        # Der abschliessende Slash ist hier Pflicht, der Body ist ein
+        # reines String-Array
+        return self._request(
+            "POST",
+            "/filestatus/",
+            list(hash_list),
+            codes={
+                200: "A list of statuses for files managed by Ark",
+                400: "Hash is invalid",
+            },
+            default=[],
+        )
+
+    @staticmethod
+    def tapes_from_file_status(file_status):
+        """Barcodes der Tapes aus einem filestatus-Eintrag sammeln
+
+        Reine Auswertung eines bereits geholten Eintrags, kein Request.
+
+        Parameters
+        ----------
+        file_status : dict
+            Ein Eintrag aus der data von get_file_status() oder
+            get_file_statuses() (Pflicht)
+
+        Returns
+        -------
+        list
+            Die Barcodes. Leer bei Disk-Backups, die keine Tapes haben
+        """
+
+        tapes = []
+        for tape in file_status.get("tapes", []) or []:
+            if isinstance(tape, dict):
+                barcode = tape.get("barcode") or tape.get("name")
+                if barcode:
+                    tapes.append(barcode)
+            else:
+                tapes.append(tape)
+        return tapes
+
+    # --------- BACKUP SEARCH ---------
+
+    def get_disk_search_status(self):
+        """Indexierungsstatus der Disk-Backups abfragen
+
+        GET /backup/disk/search/status
+
+        Returns
+        -------
+        ArkResult
+            data enthaelt total, indexed, indexing, not_indexed,
+            needs_indexing und total_files
+
+        Notes
+        -----
+        Dokumentierte Statuscodes:
+
+        200
+            Disk backup indexing status. data ist das Statusobjekt
+
+        Nur indexierte Disk-Backups sind ueber search_backups()
+        auffindbar, daher vor einer Suche pruefen
+        """
+
+        return self._request(
+            "GET",
+            "/backup/disk/search/status",
+            codes={200: "Disk backup indexing status"},
+            default={},
+        )
+
+    def search_backups(
+        self,
+        search_pattern,
+        search_mode=SEARCH_CONTAINS,
+        *,
+        backup_type=None,
+        limit=100,
+        offset=0,
+    ):
+        # pylint: disable=too-many-arguments
+        """Dateien in den indexierten Backups suchen
+
+        POST /backup/search
+
+        Parameters
+        ----------
+        search_pattern : str
+            Dateiname oder Muster (Pflicht). Bei search_mode flow_hash
+            ein FLOW-Hash der Version 2
+        search_mode : str
+            Optional, Standard contains. Erlaubt sind exact, contains,
+            wildcard und flow_hash. Siehe die SEARCH_-Konstanten
+        backup_type : str
+            Optional. disk oder tape, ohne Angabe werden beide
+            durchsucht. Siehe SOURCE_DISK und SOURCE_TAPE
+        limit : int
+            Optional, Standard 100. Maximale Trefferzahl, 1 bis 10000
+        offset : int
+            Optional, Standard 0. Anzahl zu ueberspringender Treffer
+
+        Returns
+        -------
+        ArkResult
+            data enthaelt bei 200 total_matches, limit, offset und
+            results, sonst ein leeres dict
+
+        Notes
+        -----
+        Dokumentierte Statuscodes:
+
+        200
+            Search results with pagination information. results kann
+            leer sein, total_matches nennt die Gesamtzahl
+        400
+            Hash is invalid. Tritt bei search_mode flow_hash auf, wenn
+            search_pattern kein gueltiger Hash ist
+        """
+
+        data = {
+            "search_pattern": search_pattern,
+            "search_mode": search_mode,
+            "limit": limit,
+            "offset": offset,
+        }
+
+        if backup_type:
+            data["backup_type"] = backup_type
+
+        return self._request(
+            "POST",
+            "/backup/search",
+            data,
+            codes={
+                200: "Search results with pagination information",
+                400: "Hash is invalid",
+            },
+            default={},
+        )
+
+    # --------- TAPE LIBRARY ---------
+
+    def get_tape_library_status(self):
+        """Status der Tape Library inklusive Inventar holen
+
+        GET /api/tape/library/tapes
+
+        Returns
+        -------
+        ArkResult
+            data enthaelt tapes und timestamp
+
+        Notes
+        -----
+        Dokumentierte Statuscodes:
+
+        200
+            Tape library status with complete inventory. data ist das
+            Statusobjekt
+        """
+
+        return self._request(
+            "GET",
+            "/api/tape/library/tapes",
+            codes={200: "Tape library status with complete inventory"},
+            default={},
+        )
+
+    # --------- KOMFORT ---------
 
     def restore_backup(
         self,
@@ -171,34 +851,41 @@ class Ark(Connection):
         # pylint: disable=too-many-arguments
         """Ein einzelnes Backup zurueckspielen
 
+        Baut den Body und ruft restore_backups() auf.
+
         Parameters
         ----------
         backup_id : str
-            ID des Backups, siehe get_backups()
+            ID des Backups (Pflicht), siehe get_backups()
         target : str
-            Das Restore-Ziel. Bei Media Spaces bestehend aus drei durch
-            je drei Bindestriche getrennten Teilen: ESA-Gruppe,
-            Server-Group-Member und Pfad zum Bit Bucket, z. B.
-            "esa_IBN1e---es-master---/efs/efs_1". Bei allen anderen
-            Space-Typen genuegt die ESA-Gruppe, z. B. "esa_HiNbl"
+            Das Restore-Ziel (Pflicht). Bei Media Spaces bestehend aus
+            drei durch je drei Bindestriche getrennten Teilen:
+            ESA-Gruppe, Server-Group-Member und Pfad zum Bit Bucket,
+            z. B. "esa_IBN1e---es-master---/efs/efs_1". Bei allen
+            anderen Space-Typen genuegt die ESA-Gruppe, z. B. "esa_HiNbl"
         space_type : str
-            ms, ps, priv, fe, es oder flow
+            Optional, Standard ms. Erlaubt sind ms, ps, priv, fe, es
+            und flow. Siehe die SPACE_-Konstanten
         rename : str
-            Optionaler neuer Name fuer den restaurierten Space
+            Optional. Neuer Name fuer den restaurierten Space
         cumulative : bool
-            Alle Dateien der Incremental-Kette bis backup_id
-            zurueckspielen. Nur Ark Tape
+            Optional, Standard False. Alle Dateien der
+            Incremental-Kette bis backup_id zurueckspielen, nur Ark Tape
         storage_goal : str
-            Optionales EFS Storage Goal fuer restaurierte Media Spaces
+            Optional. EFS Storage Goal fuer restaurierte Media Spaces
         restore_date : str
-            Optionaler Termin, z. B. "10/21/2015"
+            Optional. Termin im Format "10/21/2015"
         restore_time : str
-            Optionale Uhrzeit, z. B. "03:00am"
+            Optional. Uhrzeit im Format "03:00am"
 
         Returns
         -------
-        str
-            ID des neuen Restore-Jobs
+        ArkResult
+            Wie restore_backups(), data ist die Job-ID
+
+        Notes
+        -----
+        Dokumentierte Statuscodes: 200, siehe restore_backups()
         """
 
         backup = {"backup_id": backup_id}
@@ -224,41 +911,6 @@ class Ark(Connection):
 
         return self.restore_backups(data)
 
-    def restore_hashes(self, data):
-        """Einzelne Dateien anhand ihrer FLOW-Hashes zurueckspielen
-
-        POST /restore/hashes
-
-        Parameters
-        ----------
-        data : dict
-            Das Restore-Kommando. Pflicht sind files und destination,
-            optional source, z. B.
-
-                {
-                    "files": [
-                        {
-                            "flow_hash": "2:d41d8cd9...",
-                            "restore_path": "restored_files/",
-                        }
-                    ],
-                    "destination": {"mediaspace": "MyMediaSpace"},
-                }
-
-        Returns
-        -------
-        str
-            session_guid des neuen Restore-Jobs, False bei Fehler.
-            Achtung: alle uebergebenen Hashes muessen restaurierbar
-            sein, sonst antwortet Ark mit 404.
-        """
-
-        reply = self.postThatReturnsObj("/restore/hashes", data)
-        if not reply:
-            return False
-
-        return reply.get("session_guid", False)
-
     def restore_files_by_hash(
         self,
         hashes,
@@ -272,28 +924,36 @@ class Ark(Connection):
         # pylint: disable=too-many-arguments
         """Eine Liste von FLOW-Hashes in einen Media Space zurueckspielen
 
+        Baut den Body und ruft restore_hashes() auf.
+
         Parameters
         ----------
         hashes : list
-            Liste von FLOW-Hashes (Version 2, also "2:<md5>") oder eine
+            Liste von FLOW-Hashes (Pflicht), z. B.
+            ["2:d41d8cd98f00b204e9800998ecf8427e"]. Alternativ eine
             Liste von Dicts wie sie restore_hashes() erwartet
         mediaspace : str
-            Name des Ziel-Media-Space
+            Name des Ziel-Media-Space (Pflicht)
         restore_path : str
-            Pfad innerhalb des Media Space, "/" fuer die Wurzel. Wird
+            Optional, Standard "/". Pfad innerhalb des Media Space, wird
             angelegt falls nicht vorhanden
         space_uuid : str
-            Optionale UUID des Ziel-Media-Space
+            Optional. UUID des Ziel-Media-Space
         ark_sources : list
-            Optionale Quellen fuer die Suche, z. B. ["disk", "tape"]
+            Optional. Quellen fuer die Suche, z. B. ["disk", "tape"].
+            Siehe SOURCE_DISK und SOURCE_TAPE
         prefer_source : str
-            Bevorzugte Quelle wenn die Datei in beiden liegt,
+            Optional. Bevorzugte Quelle wenn die Datei in beiden liegt,
             disk oder tape
 
         Returns
         -------
-        str
-            session_guid des neuen Restore-Jobs
+        ArkResult
+            Wie restore_hashes(), data enthaelt bei 200 die session_guid
+
+        Notes
+        -----
+        Dokumentierte Statuscodes: 200, 400, 404, siehe restore_hashes()
         """
 
         files = []
@@ -301,7 +961,9 @@ class Ark(Connection):
             if isinstance(entry, dict):
                 files.append(entry)
             else:
-                files.append({"flow_hash": entry, "restore_path": restore_path})
+                files.append(
+                    {"flow_hash": entry, "restore_path": restore_path}
+                )
 
         destination = {"mediaspace": mediaspace}
         if space_uuid:
@@ -319,176 +981,192 @@ class Ark(Connection):
 
         return self.restore_hashes(data)
 
-    # --------- FILESTATUS ---------
+    def search_by_flow_hash(self, flow_hash, *, backup_type=None, limit=100):
+        """Den Backup-Index nach einem FLOW-Hash durchsuchen
 
-    def get_file_hash_database_status(self):
-        """Status der Hash-Datenbank abfragen
-
-        GET /filestatus/database
-
-        Returns
-        -------
-        dict
-            status (importing, complete oder error),
-            progress_complete und progress_estimated
-        """
-
-        return self.getThatReturnsObj("/filestatus/database")
-
-    def get_file_status(self, flow_hash):
-        """Ark Backup-Status einer Datei anhand ihres Hashes abfragen
-
-        GET /filestatus/{FileHash}
+        Ruft search_backups() im Modus flow_hash auf.
 
         Parameters
         ----------
         flow_hash : str
-            Ein FLOW-Hash. Version 0 ("<md5>"), Version 1 ("1:<md5>")
-            und Version 2 ("2:<md5>") werden unterstuetzt.
-            Siehe CLI-Kommando: flow-hash
-
-        Returns
-        -------
-        list
-            Liste der Treffer mit hash, storage_type, job_id, job_time,
-            file_id, pathname, filename, space_uuid, space_name und
-            tapes. Leere Liste wenn Ark keine Kopie hat (404).
-        """
-
-        url = "/filestatus/" + self.safe_url_string(str(flow_hash))
-        reply = self.getThatReturnsObj(url)
-        if not reply:
-            return []
-        return reply
-
-    def get_file_statuses(self, hash_list):
-        """Ark Backup-Status fuer eine Liste von Hashes abfragen
-
-        POST /filestatus/
-
-        Parameters
-        ----------
-        hash_list : list
-            Liste von FLOW-Hashes
-
-        Returns
-        -------
-        list
-            Liste der Treffer, siehe get_file_status()
-        """
-
-        # Der abschliessende Slash ist hier Pflicht, der Body ist ein
-        # reines String-Array
-        reply = self.postThatReturnsObj("/filestatus/", list(hash_list))
-        if not reply:
-            return []
-        return reply
-
-    def is_archived(self, flow_hash, storage_type=None):
-        """Pruefen ob Ark eine Kopie der Datei haelt
-
-        Parameters
-        ----------
-        flow_hash : str
-            Ein FLOW-Hash
-        storage_type : str
-            Optional nur ark_disk oder ark_tape akzeptieren
-
-        Returns
-        -------
-        bool
-            True wenn mindestens ein Treffer vorliegt
-        """
-
-        matches = self.get_file_status(flow_hash)
-        if not matches:
-            return False
-
-        if not storage_type:
-            return True
-
-        for match in matches:
-            if match.get("storage_type") == storage_type:
-                return True
-
-        return False
-
-    @staticmethod
-    def tapes_from_file_status(file_status):
-        """Barcodes der Tapes aus einem filestatus-Eintrag sammeln"""
-
-        tapes = []
-        for tape in file_status.get("tapes", []) or []:
-            if isinstance(tape, dict):
-                barcode = tape.get("barcode") or tape.get("name")
-                if barcode:
-                    tapes.append(barcode)
-            else:
-                tapes.append(tape)
-        return tapes
-
-    # --------- BACKUP SEARCH ---------
-
-    def get_disk_search_status(self):
-        """Indexierungsstatus der Disk-Backups abfragen
-
-        GET /backup/disk/search/status
-
-        Returns
-        -------
-        dict
-            total, indexed, indexing, not_indexed, needs_indexing
-            und total_files
-        """
-
-        return self.getThatReturnsObj("/backup/disk/search/status")
-
-    def search_backups(
-        self,
-        search_pattern,
-        search_mode=SEARCH_CONTAINS,
-        *,
-        backup_type=None,
-        limit=100,
-        offset=0,
-    ):
-        # pylint: disable=too-many-arguments
-        """Dateien in den indexierten Backups suchen
-
-        POST /backup/search
-
-        Parameters
-        ----------
-        search_pattern : str
-            Dateiname oder Muster. Bei search_mode flow_hash ein
-            FLOW-Hash der Version 2
-        search_mode : str
-            exact, contains, wildcard oder flow_hash
+            Ein FLOW-Hash der Version 2 (Pflicht), also "2:<md5>".
+            Andere Versionen werden von diesem Suchmodus nicht
+            unterstuetzt und nur als Warnung geloggt
         backup_type : str
-            disk, tape oder None fuer beide
+            Optional. disk oder tape, ohne Angabe beide
         limit : int
-            Maximale Trefferzahl, 1 bis 10000
-        offset : int
-            Anzahl zu ueberspringender Treffer
+            Optional, Standard 100. Maximale Trefferzahl, 1 bis 10000
 
         Returns
         -------
-        dict
-            total_matches, limit, offset und results. Disk-Backups
-            muessen indexiert sein, siehe get_disk_search_status()
+        ArkResult
+            Wie search_backups()
+
+        Notes
+        -----
+        Dokumentierte Statuscodes: 200, 400, siehe search_backups()
         """
 
-        data = {
-            "search_pattern": search_pattern,
-            "search_mode": search_mode,
-            "limit": limit,
-            "offset": offset,
-        }
+        if not str(flow_hash).startswith("2:"):
+            logging.warning(
+                "search_by_flow_hash: '%s' ist kein Hash der Version 2",
+                flow_hash,
+            )
 
-        if backup_type:
-            data["backup_type"] = backup_type
+        return self.search_backups(
+            flow_hash,
+            SEARCH_FLOW_HASH,
+            backup_type=backup_type,
+            limit=limit,
+        )
 
-        return self.postThatReturnsObj("/backup/search", data)
+    def get_tapes(self):
+        """Alle dem System bekannten Tapes holen
+
+        Ruft get_tape_library_status() auf und gibt nur die Tape-Liste
+        als data zurueck.
+
+        Returns
+        -------
+        ArkResult
+            data ist bei 200 die Liste aller Tape-Volumes, nicht nur der
+            aktuell geladenen. Jeder Eintrag enthaelt mindestens barcode
+            und in_changer. Sonst eine leere Liste
+
+        Notes
+        -----
+        Dokumentierte Statuscodes: 200, siehe get_tape_library_status()
+        """
+
+        result = self.get_tape_library_status()
+        if result.code == ARK_OK and isinstance(result.data, dict):
+            result.data = result.data.get("tapes", [])
+        else:
+            result.data = []
+        return result
+
+    def find_tape(self, barcode):
+        """Ein Tape-Volume ueber seinen Barcode finden
+
+        Ruft get_tapes() auf und filtert die Liste.
+
+        Parameters
+        ----------
+        barcode : str
+            Der Barcode des Tapes (Pflicht), z. B. "001234L5"
+
+        Returns
+        -------
+        ArkResult
+            data ist der passende Eintrag oder ein leeres dict, wenn
+            kein Tape mit diesem Barcode bekannt ist
+
+        Notes
+        -----
+        Dokumentierte Statuscodes: 200, siehe get_tape_library_status().
+        Ein leeres data bei code 200 heisst: Barcode nicht gefunden
+        """
+
+        result = self.get_tapes()
+        match = {}
+        if result.code == ARK_OK:
+            for tape in result.data or []:
+                if tape.get("barcode") == barcode:
+                    match = tape
+                    break
+        result.data = match
+        return result
+
+    def find_backups_by_space_name(self, space_name):
+        """Alle Backups eines Media Space ueber den Namen finden
+
+        Ruft get_backups() auf und filtert die Liste.
+
+        Parameters
+        ----------
+        space_name : str
+            Name des Media Space (Pflicht)
+
+        Returns
+        -------
+        ArkResult
+            data ist die Liste der passenden Backups, leer wenn keins
+            passt
+
+        Notes
+        -----
+        Dokumentierte Statuscodes: 200, siehe get_backups()
+        """
+
+        return self._filter_backups("media_space_name", space_name)
+
+    def find_backups_by_space_uuid(self, space_uuid):
+        """Alle Backups eines Media Space ueber die UUID finden
+
+        Ruft get_backups() auf und filtert die Liste.
+
+        Parameters
+        ----------
+        space_uuid : str
+            UUID des Media Space (Pflicht)
+
+        Returns
+        -------
+        ArkResult
+            data ist die Liste der passenden Backups
+
+        Notes
+        -----
+        Dokumentierte Statuscodes: 200, siehe get_backups()
+        """
+
+        return self._filter_backups("media_space_uuid", str(space_uuid))
+
+    def find_backup(self, backup_id):
+        """Ein einzelnes Backup ueber seine ID finden
+
+        Ruft get_backups() auf und filtert die Liste.
+
+        Parameters
+        ----------
+        backup_id : str
+            Die Backup-ID (Pflicht), z. B. "ark.tapeserver_f541..."
+
+        Returns
+        -------
+        ArkResult
+            data ist der passende Eintrag oder ein leeres dict
+
+        Notes
+        -----
+        Dokumentierte Statuscodes: 200, siehe get_backups().
+        Ein leeres data bei code 200 heisst: ID nicht gefunden
+        """
+
+        result = self._filter_backups("backup_id", backup_id)
+        result.data = result.data[0] if result.data else {}
+        return result
+
+    def _filter_backups(self, field, value):
+        """get_backups() holen und nach einem Feld filtern
+
+        Returns
+        -------
+        ArkResult
+            data ist die gefilterte Liste, bei Fehlern leer
+        """
+
+        result = self.get_backups()
+        if result.code != ARK_OK:
+            result.data = []
+            return result
+
+        result.data = [
+            backup
+            for backup in result.data or []
+            if backup.get(field) == value
+        ]
+        return result
 
     def search_all_backups(
         self,
@@ -502,34 +1180,53 @@ class Ark(Connection):
         # pylint: disable=too-many-arguments
         """Alle Treffer einer Suche seitenweise holen
 
+        Ruft search_backups() so oft auf, bis total_matches erreicht ist.
+
         Parameters
         ----------
+        search_pattern : str
+            Dateiname oder Muster (Pflicht)
+        search_mode : str
+            Optional, Standard contains. exact, contains, wildcard oder
+            flow_hash
+        backup_type : str
+            Optional. disk oder tape, ohne Angabe beide
         page_size : int
-            Treffer pro Request, 1 bis 10000
+            Optional, Standard 1000. Treffer pro Request, 1 bis 10000
         max_results : int
-            Abbruch nach dieser Trefferzahl, 0 holt alles
+            Optional, Standard 0. Abbruch nach dieser Trefferzahl,
+            0 holt alles
 
         Returns
         -------
-        list
-            Alle passenden Treffer
+        ArkResult
+            data ist die Liste aller Treffer. Bricht eine Seite mit
+            einem anderen Code als 200 ab, kommt deren Ergebnis zurueck
+            und data enthaelt nur die bis dahin gesammelten Treffer
+
+        Notes
+        -----
+        Dokumentierte Statuscodes: 200, 400, siehe search_backups()
         """
 
         results = []
         offset = 0
+        result = None
 
         while True:
-            reply = self.search_backups(
+            result = self.search_backups(
                 search_pattern,
                 search_mode,
                 backup_type=backup_type,
                 limit=page_size,
                 offset=offset,
             )
-            if not reply:
-                break
+            if result.code != ARK_OK:
+                result.data = results
+                return result
 
-            page = reply.get("results", [])
+            payload = result.data if isinstance(result.data, dict) else {}
+            page = payload.get("results", [])
             if not page:
                 break
 
@@ -537,58 +1234,21 @@ class Ark(Connection):
             offset += len(page)
 
             if max_results and len(results) >= max_results:
-                return results[:max_results]
-
-            if offset >= int(reply.get("total_matches", 0)):
+                results = results[:max_results]
                 break
 
-        return results
+            if offset >= int(payload.get("total_matches", 0)):
+                break
 
-    def search_by_flow_hash(self, flow_hash, *, backup_type=None, limit=100):
-        """Den Backup-Index nach einem FLOW-Hash durchsuchen"""
+        result.data = results
+        return result
 
-        if not str(flow_hash).startswith("2:"):
-            logging.warning(
-                "search_by_flow_hash: '%s' ist kein Hash der Version 2", flow_hash
-            )
 
-        return self.search_backups(
-            flow_hash,
-            SEARCH_FLOW_HASH,
-            backup_type=backup_type,
-            limit=limit,
-        )
-
-    # --------- TAPE LIBRARY ---------
-
-    def get_tape_library_status(self):
-        """Rohen Status der Tape Library inklusive Timestamp holen
-
-        GET /api/tape/library/tapes
-        """
-
-        return self.getThatReturnsObj("/api/tape/library/tapes")
-
-    def get_tapes(self):
-        """Alle dem System bekannten Tapes holen
-
-        Returns
-        -------
-        list
-            Alle Tape-Volumes, nicht nur die aktuell geladenen. Jeder
-            Eintrag enthaelt mindestens barcode und in_changer
-        """
-
-        reply = self.get_tape_library_status()
-        if not reply:
-            return []
-        return reply.get("tapes", [])
-
-    def find_tape(self, barcode):
-        """Ein Tape-Volume ueber seinen Barcode finden"""
-
-        for tape in self.get_tapes():
-            if tape.get("barcode") == barcode:
-                return tape
-
-        return {}
+# --------- KEEP THIS LINE AT THE END ---------
+__all__ = [
+    name
+    for name in dir()
+    if name.startswith(
+        ("Ark", "ARK_", "ERROR_", "SEARCH_", "SOURCE_", "SPACE_", "STORAGE_")
+    )
+]
