@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "ark-api"
+description = "Wrapper für Ark API"
+readme = "README.md"
+requires-python = ">=3.11"
+dynamic = ["version"]
+dependencies = [
+    "editshare-flow-api~=2026.2.1.0",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "toolbox.toolbox.TOOLBOX_VERSION"}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ark-api-wrapper*"]
