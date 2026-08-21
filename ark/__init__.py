@@ -4,8 +4,6 @@ ark - Wrapper fuer die EditShare Ark API
 
 # --------- IMPORTS ---------
 
-import types
-
 from .ark import (
     ARK_PORT,
     ARK_VERSION,
@@ -30,9 +28,4 @@ from .ark import (
 
 __version__ = ARK_VERSION
 
-# Submodule aus dem Namensraum halten, sonst schattet "ark" das Paket
-__all__ = [
-    name
-    for name, value in list(globals().items())
-    if not name.startswith("_") and not isinstance(value, types.ModuleType)
-]
+__all__ = [name for name in dir() if not name.startswith("_")]

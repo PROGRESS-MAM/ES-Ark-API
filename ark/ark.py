@@ -19,6 +19,10 @@ from FlowAPI.core import (
 
 ARK_VERSION = "0.1.0"
 
+# Auch hier gesetzt, damit die Version verfuegbar bleibt wenn das
+# Submodul das Paket schattet (Stern-Import)
+__version__ = ARK_VERSION
+
 # FlowAPI.core kennt keinen Port fuer Ark, daher hier definiert.
 # Siehe servers-Abschnitt der ark.yaml: https://{server}:8000/
 ARK_PORT = 8000
