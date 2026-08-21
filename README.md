@@ -134,10 +134,9 @@ Das ist der einzige vorgesehene Weg. Ark läuft fest auf Port 8000.
 | Aufruf | Pflicht |
 | ---------- | -------- |
 | `ArkAPI.create_instance(ip_addr, username, password)` | `ip_addr`, `username`, `password` |
-| `Ark.create_instance(ip_addr, username, password)` | `ip_addr`, `username`, `password` |
 | `ark.connect(ip_addr, username, password)` | `ip_addr`, `username`, `password` |
 
-Die Modulfunktion und die Staticmethode sind gleichwertig — `ArkAPI.create_instance()` delegiert an `Ark.create_instance()`. `connect()` wird von dort aufgerufen und ist selten direkt nötig.
+`ArkAPI.create_instance()` ist der einzige Weg zu einer Instanz — die Klasse `Ark` hat keine eigene Fabrikmethode. `connect()` wird von der Fabrik aufgerufen und ist selten direkt nötig.
 
 Sitzt ein Reverse Proxy vor dem Server, kann der antworten, bevor Ark den Request sieht. Solche Antworten tragen einen Code, den die jeweilige Funktion nicht aufführt — siehe [Ausführlicher Aufruf](#ausführlicher-aufruf).
 

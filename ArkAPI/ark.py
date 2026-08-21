@@ -95,36 +95,11 @@ class Ark(Connection):
         self._service_name = "ark"
 
     # --------- CONNECTION ---------
-    @staticmethod
-    def create_instance(ip_addr, username, password):
-        """Direkte Verbindung zum Ark-Server aufbauen
-
-        Parameters
-        ----------
-        ip_addr : str
-            IP oder Hostname des Ark-Servers (Pflicht)
-        username : str
-            Benutzername fuer BasicAuth (Pflicht)
-        password : str
-            Passwort fuer BasicAuth (Pflicht)
-
-        Returns
-        -------
-        Ark
-            Verbundene Instanz auf Port 8000
-
-        Notes
-        -----
-        Gleichwertig zur Modulfunktion ArkAPI.create_instance()
-        """
-
-        return _create_instance(Ark, ip_addr, username, password)
-
     def connect(self, ip_addr, username, password):
         """Verbindung zum Ark-Server herstellen
 
-        Wird von create_instance() aufgerufen und ueberschreibt
-        Connection.connect2() der FlowAPI mit festem Port.
+        Wird von ArkAPI.create_instance() aufgerufen und ueberschreibt
+        Connection.connect() der FlowAPI mit festem Port.
 
         Parameters
         ----------
@@ -1144,8 +1119,6 @@ class Ark(Connection):
 
 
 # --------- FACTORY ---------
-
-
 def create_instance(ip_addr, username, password):
     """Verbundene Ark-Instanz erzeugen
 
@@ -1169,7 +1142,7 @@ def create_instance(ip_addr, username, password):
     >>> ark = ArkAPI.create_instance("10.0.0.5", "user", "pass")
     """
 
-    return Ark.create_instance(ip_addr, username, password)
+    return _create_instance(Ark, ip_addr, username, password)
 
 
 # --------- KEEP THIS LINE AT THE END ---------
