@@ -13,12 +13,10 @@ import logging
 
 from FlowAPI.core import Connection
 from FlowAPI.core import create_instance as _create_instance
-from FlowAPI.core import (
-    create_gateway_instance_inner as _create_gateway_instance_inner)
 
 # --------- STATIC ---------
 
-ARK_VERSION = "0.1.0"
+ARK_VERSION = "0.1.1"
 __version__ = ARK_VERSION
 
 
@@ -100,9 +98,7 @@ class Ark(Connection):
         """Verbindung zum Ark-Server herstellen
 
         Wird von ArkAPI.create_instance() aufgerufen und ueberschreibt
-        Connection.connect() der FlowAPI mit festem Port. Der
-        Gateway-Weg nutzt diese Methode nicht, sondern connect2() mit
-        Port 8006.
+        Connection.connect() der FlowAPI mit festem Port.
 
         Parameters
         ----------
@@ -1150,9 +1146,9 @@ def create_instance(username, password, ip_addr):
 
     Notes
     -----
-    Die Reihenfolge der Argumente folgt create_gateway_instance() und
-    damit dem Muster der Toolbox. core.create_instance() erwartet den
-    Host zuerst, das dreht diese Funktion um
+    Die Reihenfolge der Argumente folgt dem Muster der Toolbox.
+    core.create_instance() erwartet den Host zuerst, das dreht diese
+    Funktion um
 
     Examples
     --------
@@ -1166,49 +1162,7 @@ def create_instance(username, password, ip_addr):
     return _create_instance(Ark, ip_addr, username, password)
 
 
-def create_gateway_instance(username, password, ip_addr=None):
-    """Ark-Instanz ueber den lokalen Gateway erzeugen
-
-    Parameters
-    ----------
-    username : str
-        Benutzername fuer BasicAuth (Pflicht)
-    password : str
-        Passwort fuer BasicAuth (Pflicht)
-    ip_addr : str
-        IP oder Hostname des Gateways. Fehlt der Wert, nimmt core
-        EDITSHARE_DOCKER_GATEWAY aus der Umgebung und sonst 127.0.0.1
-
-    Returns
-    -------
-    Ark
-        Verbundene Instanz, HTTPS auf Port 8006
-
-    Notes
-    -----
-    Der Gateway erwartet die Pfade unter /api/v2/ark. Das setzt
-    do_request() in core selbst davor, sobald setUseGateway(True)
-    gesetzt ist. Aus /restore/backups wird /api/v2/ark/restore/backups
-
-    Examples
-    --------
-    >>> import ArkAPI
-    >>> ark = ArkAPI.create_gateway_instance(
-    ...     os.environ.get("FLOW_USER"),
-    ...     os.environ.get("FLOW_PASSWORD"),
-    ...     os.environ.get("FLOW_HOST"))
-    """
-
-    return _create_gateway_instance_inner(
-        Ark, username, password, ip_addr)
-
-
 # --------- KEEP THIS LINE AT THE END ---------
-
-# Toolbox filtert auf "tb_", hier gibt es keinen Prefix. Stattdessen die
-# Namensraeume des Moduls: so bleiben json, logging, Connection und die
-# beiden Fabriken aus core draussen. Deren Alias mit "_" ist Pflicht,
-# denn create_gateway_instance_inner beginnt sonst mit "create_".
 __all__ = [
     name
     for name in dir()

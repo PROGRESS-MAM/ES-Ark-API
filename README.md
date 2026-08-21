@@ -5,10 +5,6 @@ Wrapper für die EditShare Ark API.
 ## Installation
 
 ```powershell
-pip install "ArkAPI @ git+https://github.com/PROGRESS-MAM/ES-Ark-API.git@main"
-```
-
-```powershell
 pip install -e .
 ```
 
@@ -141,21 +137,11 @@ Das Objekt landet **nicht** in `data`. `data` behält bei jedem Fehler den Leerw
 
 ## Verbinden
 
-Es gibt zwei Wege, wie in der Toolbox. Beide nehmen die Argumente in derselben Reihenfolge: **Benutzer, Passwort, Host**.
+Die Argumente kommen in der Reihenfolge der Toolbox: **Benutzer, Passwort, Host**.
 
 ```python
 import ArkAPI
 
-ark = ArkAPI.create_gateway_instance(
-    os.environ.get("FLOW_USER"),
-    os.environ.get("FLOW_PASSWORD"),
-    os.environ.get("FLOW_HOST"),
-)
-```
-
-Direkt auf den Ark-Server, wenn kein Gateway davor liegt:
-
-```python
 ark = ArkAPI.create_instance(
     os.environ.get("FLOW_USER"),
     os.environ.get("FLOW_PASSWORD"),
@@ -163,39 +149,30 @@ ark = ArkAPI.create_instance(
 )
 ```
 
-| Aufruf | Pflicht | Port |
-| ---------- | -------- | ---- |
-| `ArkAPI.create_gateway_instance(username, password, ip_addr=None)` | `username`, `password` | 8006 |
-| `ArkAPI.create_instance(username, password, ip_addr)` | alle drei | 8000 |
-| `ark.connect(ip_addr, username, password)` | alle drei | 8000 |
+Alle drei Werte sind Pflicht. Ark antwortet per HTTPS auf Port 8000.
 
-Beim Gateway ist der Host optional: fehlt er, nimmt `FlowAPI.core` die Variable `EDITSHARE_DOCKER_GATEWAY` und sonst `127.0.0.1`. Beim direkten Weg ist er Pflicht.
+| Aufruf | Port |
+| ---------- | ---- |
+| `ArkAPI.create_instance(username, password, ip_addr)` | 8000 |
+| `ark.connect(ip_addr, username, password)` | 8000 |
 
-Die Umgebungsvariablen liest das aufrufende Projekt, nicht `ArkAPI` — genauso wie in der Toolbox. Das Paket kennt keine Variablennamen.
+Die Umgebungsvariablen liest das aufrufende Projekt, nicht `ArkAPI` — genauso wie in der Toolbox. Das Paket kennt keine Variablennamen. Liegen sie in einer `.env`, braucht es `load_dotenv()` davor; `os.environ` liest solche Dateien nicht von allein.
 
-`connect()` wird von `create_instance()` aufgerufen und ist selten direkt nötig. Der Gateway-Weg benutzt es nicht, sondern `connect2()` aus `core`.
+`connect()` wird von `create_instance()` aufgerufen und ist selten direkt nötig.
 
 ### Warum die Reihenfolge von core abweicht
 
-`FlowAPI.core` ist hier selbst nicht einheitlich:
+`FlowAPI.core` erwartet den Host zuerst:
 
 ```python
-def create_instance(api, host_ip, username, password)              # Host zuerst
-def create_gateway_instance_inner(api, username, password, ip_addr)  # Host zuletzt
+def create_instance(api, host_ip, username, password)
 ```
 
-Beide Fabriken hier nehmen `(username, password, ip_addr)`, damit der Wechsel zwischen ihnen kein Umstellen der Argumente verlangt. `create_instance()` dreht die Reihenfolge intern zurück.
+`ArkAPI.create_instance()` nimmt stattdessen `(username, password, ip_addr)` und dreht die Reihenfolge intern zurück. So sieht der Aufruf aus wie in der Toolbox.
 
-### Was der Gateway mit den Pfaden macht
+### Kein Weg über den FLOW-Gateway
 
-Bei `setUseGateway(True)` setzt `do_request()` in `core` vor jeden Pfad `/api/v2/` plus den Dienstnamen — hier `ark`:
-
-```
-GET /restore/backups          ->  GET /api/v2/ark/restore/backups
-GET /api/tape/library/tapes   ->  GET /api/v2/ark/api/tape/library/tapes
-```
-
-Der zweite Fall sieht doppelt aus, entsteht aber so, weil dieser eine Ark-Endpunkt sein `/api` schon in der Spezifikation trägt. Ob der Gateway diesen Pfad durchreicht, ist hier nicht geprüft — dazu braucht es einen laufenden Gateway.
+Ark ist über den Gateway auf Port 8006 nicht erreichbar. Am laufenden System geprüft: der direkte Weg auf Port 8000 antwortet, der Gateway nicht. Die Spezifikation nennt als Server ausschliesslich `https://{server}:8000/` ohne Basispfad und erwähnt keinen Gateway. Deshalb gibt es hier bewusst kein `create_gateway_instance()`, anders als bei `FlowAPI.Metadata`.
 
 Sitzt ein Reverse Proxy vor dem Server, kann der antworten, bevor Ark den Request sieht. Solche Antworten tragen einen Code, den die jeweilige Funktion nicht aufführt — siehe [Ausführlicher Aufruf](#ausführlicher-aufruf).
 
@@ -629,7 +606,7 @@ Gibt eine `list` zurück, leer bei Disk-Backups.
 
 Bei `restore_hashes()` und 404 ist das `details`-Feld der API ein Objekt, obwohl das Schema eine Zeichenkette vorschreibt. `message` trägt es dann als JSON — siehe [message ist immer ein String](#message-ist-immer-ein-string).
 
-Der Ark-Port 8000 steht als Zahl in `connect()`. `FlowAPI.core` kennt dafür keine Konstante. Den Gateway-Port 8006 setzt `core` selbst als `GATEWAY_PORT`.
+Der Ark-Port 8000 steht als Zahl in `connect()`. `FlowAPI.core` kennt dafür keine Konstante.
 
 ## Interne Funktionen
 
@@ -648,7 +625,7 @@ __all__ = [
 ]
 ```
 
-Das sind fünf Namen: `Ark`, `ArkResult`, `ARK_VERSION`, `create_instance` und `create_gateway_instance`. Der Alias mit `_` beim Import von `create_gateway_instance_inner` ist Pflicht — ohne ihn landet auch dieser Name im `__all__`, weil er mit `create_` beginnt. Das Paket kennt keine Konstanten — Statuscodes sind Zahlen, Fehlerkennungen und Aufzählungswerte sind Zeichenketten.
+Das sind vier Namen: `Ark`, `ArkResult`, `ARK_VERSION` und `create_instance`. Der Alias mit `_` beim Import aus `core` ist Pflicht — ohne ihn fängt der Filter auf `create_` auch den core-Namen ein. Das Paket kennt keine Konstanten — Statuscodes sind Zahlen, Fehlerkennungen und Aufzählungswerte sind Zeichenketten.
 
 **Neue öffentliche Namen müssen einen dieser Prefixe tragen**, sonst tauchen
 sie im Paket nicht auf.
