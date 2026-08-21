@@ -5,6 +5,10 @@ Wrapper für die EditShare Ark API.
 ## Installation
 
 ```powershell
+pip install "ArkAPI @ git+https://github.com/PROGRESS-MAM/ES-Ark-API.git@main"
+```
+
+```powershell
 pip install -e .
 ```
 
