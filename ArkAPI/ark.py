@@ -11,21 +11,13 @@ https://developers.editshare.com/?urls.primaryName=EditShare%20Ark
 import json
 import logging
 
-from FlowAPI.core import (
-    Connection,
-    create_gateway_instance_inner,
-    create_instance,
-)
+from FlowAPI.core import Connection
+from FlowAPI.core import create_instance as _create_instance
 
 # --------- STATIC ---------
 
 ARK_VERSION = "0.1.0"
 __version__ = ARK_VERSION
-
-ERROR_INVALID_HASH = "INVALID_HASH"
-ERROR_INVALID_DESTINATION = "INVALID_DESTINATION"
-ERROR_INVALID_SOURCE = "INVALID_SOURCE"
-ERROR_MISSING_REQUIRED_FIELD = "MISSING_REQUIRED_FIELD"
 
 
 # --------- RESULT ---------
@@ -43,11 +35,16 @@ class ArkResult:
     data : object
         Die Nutzdaten. Bei 400 und 404 der jeweilige Leerwert der Methode
     message : str
-        Lesbarer Text. Bei Fehlern das details-Feld der API, sonst die
-        Beschreibung des Codes aus der Spezifikation
+        Lesbarer Text, immer eine Zeichenkette. Bei Fehlern das
+        details-Feld der API, sonst die Beschreibung des Codes aus der
+        Spezifikation. Ist details kein Text, sondern ein Objekt, gilt
+        die Beschreibung aus der Spezifikation
     error : str
-        Maschinenlesbare Fehlerkennung der API, z. B. INVALID_HASH.
-        Leer wenn die Antwort kein Fehler-Objekt war
+        Maschinenlesbare Fehlerkennung der API, 1:1 uebernommen, z. B.
+        INVALID_HASH. Welche Werte ein Endpunkt liefern kann, steht in
+        dessen Docstring. Die Spezifikation fuehrt sie nur als Beispiel
+        und nicht als enum, die Liste kann also wachsen. Leer wenn die
+        Antwort kein Fehler-Objekt war
 
     Mehr gibt es nicht. Welche Codes ein Endpunkt kennt, steht im
     Docstring der jeweiligen Methode und in der README.
@@ -115,44 +112,19 @@ class Ark(Connection):
         -------
         Ark
             Verbundene Instanz auf Port 8000
-        """
-
-        return create_instance(Ark, ip_addr, username, password)
-
-    @staticmethod
-    def create_gateway_instance(username, password, ip_addr=None):
-        """Verbindung ueber das lokale FLOW-Gateway aufbauen
-
-        Parameters
-        ----------
-        username : str
-            Benutzername fuer BasicAuth (Pflicht)
-        password : str
-            Passwort fuer BasicAuth (Pflicht)
-        ip_addr : str
-            Optional. Adresse des Gateways. Ohne Angabe wird die
-            Umgebungsvariable EDITSHARE_DOCKER_GATEWAY genutzt,
-            Standard 127.0.0.1
-
-        Returns
-        -------
-        Ark
-            Verbundene Instanz auf dem Gateway-Port 8006
 
         Notes
         -----
-        Auf diesem Weg kann ein Reverse Proxy antworten, bevor Ark den
-        Request sieht. Solche Antworten tragen einen Code, den der
-        Docstring des Endpunkts nicht auffuehrt.
+        Gleichwertig zur Modulfunktion ArkAPI.create_instance()
         """
 
-        return create_gateway_instance_inner(Ark, username, password, ip_addr)
+        return _create_instance(Ark, ip_addr, username, password)
 
     def connect(self, ip_addr, username, password):
         """Verbindung zum Ark-Server herstellen
 
         Wird von create_instance() aufgerufen und ueberschreibt
-        Connection.connect() der FlowAPI.
+        Connection.connect2() der FlowAPI mit festem Port.
 
         Parameters
         ----------
@@ -180,11 +152,18 @@ class Ark(Connection):
         EditShareHTTPError mit den Pflichtfeldern code, error und
         details.
 
+        details ist laut Schema nicht immer eine Zeichenkette. Bei
+        POST /restore/hashes und Code 404 ist es ein Objekt mit der
+        Liste der betroffenen Dateien. Ein solches details wird hier
+        verworfen, damit message eine Zeichenkette bleibt und auf den
+        Text der Spezifikation zurueckfaellt. Der vollstaendige Body
+        bleibt ueber last_response() erreichbar.
+
         Returns
         -------
         tuple
-            (error, details). Beide leer wenn der Body kein
-            EditShareHTTPError war
+            (error, details), beide str. Beide leer wenn der Body kein
+            EditShareHTTPError war oder details kein Text ist
         """
 
         body = self.lastResponse()
@@ -199,7 +178,15 @@ class Ark(Connection):
         if not isinstance(payload, dict):
             return "", ""
 
-        return payload.get("error", ""), payload.get("details", "")
+        error = payload.get("error", "")
+        details = payload.get("details", "")
+
+        if not isinstance(error, str):
+            error = ""
+        if not isinstance(details, str):
+            details = ""
+
+        return error, details
 
     def _request(self, verb, endpoint, data=None, *, codes, default=None):
         """Request ausfuehren und den Statuscode unveraendert durchreichen
@@ -391,15 +378,21 @@ class Ark(Connection):
             session_guid zum Verfolgen des Jobs
         400
             Bad Request - Invalid hash format, invalid destination, or
-            malformed request. error nennt die Ursache, z. B.
-            INVALID_HASH, INVALID_DESTINATION, INVALID_SOURCE oder
+            malformed request. error ist INVALID_HASH,
+            INVALID_DESTINATION, INVALID_SOURCE oder
             MISSING_REQUIRED_FIELD
         404
-            Not Found - One or more hashes cannot be restored. Entweder
-            liegt zu mindestens einem Hash kein Backup vor, oder das
-            benoetigte Tape ist offline. details nennt die betroffenen
-            Hashes. Es gilt alles oder nichts: ein einziger nicht
+            Not Found - One or more hashes cannot be restored. error ist
+            HASHES_NOT_RESTORABLE. Entweder liegt zu mindestens einem
+            Hash kein Backup vor, oder das benoetigte Tape ist offline.
+            Es gilt alles oder nichts: ein einziger nicht
             restaurierbarer Hash laesst den ganzen Auftrag scheitern
+
+        Nur hier ist das Feld details der API ein Objekt und keine
+        Zeichenkette: es listet unter files jeden gescheiterten Hash
+        mit eigener Begruendung. message bleibt darum der Text aus der
+        Spezifikation. Die Liste steht im Rohbody, erreichbar ueber
+        last_response()
         """
 
         return self._request(
@@ -470,10 +463,11 @@ class Ark(Connection):
             A list of statuses for files managed by Ark. Ark haelt
             mindestens eine Kopie
         400
-            Hash is invalid. Der Hash passt nicht auf das Muster
-            (1:|2:|)[A-Fa-f0-9]{32}
+            Hash is invalid. error ist INVALID_HASH, der Hash passt
+            nicht auf das Muster (1:|2:|)[A-Fa-f0-9]{32}
         404
-            No matches found. Ark haelt keine Kopie dieser Datei
+            No matches found. error ist HASH_NOT_FOUND, Ark haelt keine
+            Kopie dieser Datei
 
         Achtung: 404 ist eine Fachauskunft, kein Transportfehler. Wer
         daran eine Loeschentscheidung haengt, muss 400 und 404
@@ -525,6 +519,9 @@ class Ark(Connection):
 
         Diese Operation liefert kein 200. Ein Vergleich auf 200 geht hier
         also immer schief - auf 204 pruefen
+
+        Keiner der drei Codes hat einen Body, darum sind error und data
+        hier immer leer. Die Auskunft steckt allein im Code
         """
 
         url = "/filestatus/" + self.safe_url_string(str(flow_hash))
@@ -562,8 +559,8 @@ class Ark(Connection):
             A list of statuses for files managed by Ark. Die Liste kann
             leer sein, wenn zu keinem Hash eine Kopie vorliegt
         400
-            Hash is invalid. Mindestens ein Hash der Liste passt nicht
-            auf das Muster
+            Hash is invalid. error ist INVALID_HASH, mindestens ein Hash
+            der Liste passt nicht auf das Muster
 
         Diese Operation kennt kein 404. Hashes ohne Kopie fehlen
         einfach im Ergebnis, ein Abgleich mit hash_list zeigt also,
@@ -685,8 +682,9 @@ class Ark(Connection):
             Search results with pagination information. results kann
             leer sein, total_matches nennt die Gesamtzahl
         400
-            Hash is invalid. Tritt bei search_mode flow_hash auf, wenn
-            search_pattern kein gueltiger Hash ist
+            Hash is invalid. error ist INVALID_HASH. Tritt bei
+            search_mode flow_hash auf, wenn search_pattern kein
+            gueltiger Hash ist
         """
 
         data = {
@@ -1145,13 +1143,38 @@ class Ark(Connection):
         return result
 
 
-# --------- KEEP THIS LINE AT THE END ---------
+# --------- FACTORY ---------
 
-# Toolbox filtert auf "tb_", hier gibt es keinen Prefix. Stattdessen die
-# Namensraeume des Moduls: so bleiben json, logging, Connection,
-# create_instance und create_gateway_instance_inner draussen.
+
+def create_instance(ip_addr, username, password):
+    """Verbundene Ark-Instanz erzeugen
+
+    Parameters
+    ----------
+    ip_addr : str
+        IP oder Hostname des Ark-Servers (Pflicht)
+    username : str
+        Benutzername fuer BasicAuth (Pflicht)
+    password : str
+        Passwort fuer BasicAuth (Pflicht)
+
+    Returns
+    -------
+    Ark
+        Verbundene Instanz auf Port 8000
+
+    Examples
+    --------
+    >>> import ArkAPI
+    >>> ark = ArkAPI.create_instance("10.0.0.5", "user", "pass")
+    """
+
+    return Ark.create_instance(ip_addr, username, password)
+
+
+# --------- KEEP THIS LINE AT THE END ---------
 __all__ = [
     name
     for name in dir()
-    if name.startswith(("Ark", "ARK_", "ERROR_"))
+    if name.startswith(("Ark", "ARK_", "create_"))
 ]

@@ -1,5 +1,5 @@
 """
-ark - Wrapper fuer die EditShare Ark API
+ArkAPI - Wrapper fuer die EditShare Ark API
 """
 
 # --------- IMPORTS ---------

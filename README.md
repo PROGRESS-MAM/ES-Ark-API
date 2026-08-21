@@ -12,7 +12,7 @@ Als Abhängigkeit in einem anderen Projekt:
 
 ```toml
 dependencies = [
-    "ark @ git+https://github.com/PROGRESS-MAM/ES-Ark-API.git@main",
+    "ArkAPI @ git+https://github.com/PROGRESS-MAM/ES-Ark-API.git@main",
 ]
 ```
 
@@ -58,7 +58,7 @@ else:
     raise RuntimeError(result.message)
 ```
 
-Kommt ein Code, den die Funktion nicht aufführt, hat nicht Ark geantwortet, sondern Gateway, Auth oder ein abgebrochener Socket. `message` sagt das dann ausdrücklich:
+Kommt ein Code, den die Funktion nicht aufführt, hat nicht Ark geantwortet, sondern ein Proxy, die Authentifizierung oder ein abgebrochener Socket. `message` sagt das dann ausdrücklich:
 
 ```
 Statuscode 502 ist fuer diesen Endpunkt nicht dokumentiert: <html>...
@@ -68,40 +68,78 @@ Statuscode 502 ist fuer diesen Endpunkt nicht dokumentiert: <html>...
 
 ### Fehlerkennungen
 
-Vier Konstanten bleiben — die Werte des `error`-Feldes. Sie stehen nicht für Codes, sondern für Ursachen, und ein und derselbe Code 400 kann alle vier bedeuten:
+`result.error` ist die maschinenlesbare Kennung aus dem Fehlerobjekt der API, 1:1 übernommen. Der Wrapper vergleicht sie nirgends und definiert keine Konstanten dafür — verglichen wird im Caller gegen die Zeichenkette:
 
 ```python
-from ark import ERROR_INVALID_HASH, ERROR_INVALID_DESTINATION
-from ark import ERROR_INVALID_SOURCE, ERROR_MISSING_REQUIRED_FIELD
-
 if result.code == 400:
-    if result.error == ERROR_INVALID_HASH:
+    if result.error == "INVALID_HASH":
         ...             # Hash in der CSV korrigieren
-    elif result.error == ERROR_INVALID_DESTINATION:
+    elif result.error == "INVALID_DESTINATION":
         ...             # Restore-Ziel falsch konfiguriert
 ```
 
-Als Konstanten und nicht als Zeichenkette, weil ein Tippfehler in `"INVALID_HSAH"` sonst stillschweigend nie zutrifft und der Zweig einfach nie läuft. Bei einer Konstante schlägt er beim Import an.
+Ein Code sagt nicht, welche Kennung kommt: bei `restore_hashes()` kann 400 alle vier Ursachen bedeuten. Was welcher Endpunkt liefert:
+
+| Funktion | Code | `error` |
+| --- | --- | --- |
+| `restore_hashes()` | 400 | `INVALID_HASH`, `INVALID_DESTINATION`, `INVALID_SOURCE`, `MISSING_REQUIRED_FIELD` |
+| `restore_hashes()` | 404 | `HASHES_NOT_RESTORABLE` |
+| `get_file_status()` | 400 | `INVALID_HASH` |
+| `get_file_status()` | 404 | `HASH_NOT_FOUND` |
+| `get_file_statuses()` | 400 | `INVALID_HASH` |
+| `search_backups()` | 400 | `INVALID_HASH` |
+| `has_file_status()` | 400, 404 | — kein Body, `error` ist immer `""` |
+
+Die Komfort-Funktionen erben die Werte der Funktion, die sie aufrufen: `restore_backup()` und `find_*()` über `get_backups()` bzw. `restore_backups()` (nur 200, also nie ein `error`), `restore_files_by_hash()` über `restore_hashes()`, `search_by_flow_hash()` und `search_all_backups()` über `search_backups()`.
+
+**Die Liste ist nicht abschließend.** Die Spezifikation führt diese Werte nur als Beispiel, nicht als `enum`. Ein `else`-Zweig, der einen unbekannten Wert protokolliert, ist deshalb Pflicht.
+
+### message ist immer ein String
+
+`message` ist bei Fehlern das `details`-Feld der API. Bei `restore_hashes()` und 404 ist `details` allerdings ein Objekt und keine Zeichenkette — es listet jeden gescheiterten Hash mit eigener Begründung:
+
+```json
+{
+  "code": 404,
+  "error": "HASHES_NOT_RESTORABLE",
+  "details": {
+    "files": [
+      {"flow_hash": "2:0000...", "error": "Hash not found in any source"}
+    ]
+  }
+}
+```
+
+Ein solches `details` wird verworfen, `message` trägt dann den Text aus der Spezifikation. So bleibt `message` in jedem Fall eine Zeichenkette und `result.message.strip()` läuft nicht ins Leere. Die Liste der gescheiterten Hashes steht im Rohbody:
+
+```python
+result = ark.restore_hashes({"hashes": hashes, "destination": ziel})
+
+if result.code == 404:
+    roh = json.loads(ark.last_response())
+    for eintrag in roh["details"]["files"]:
+        print(eintrag["flow_hash"], eintrag["error"])
+```
 
 ## Verbinden
 
-| Methode | Pflicht | Optional |
-| ---------- | -------- | ------------- |
-| `Ark.create_instance(ip_addr, username, password)` | `ip_addr`, `username`, `password` | – |
-| `Ark.create_gateway_instance(username, password)` | `username`, `password` | `ip_addr` (Standard: `EDITSHARE_DOCKER_GATEWAY`, sonst `127.0.0.1`) |
-| `ark.connect(ip_addr, username, password)` | `ip_addr`, `username`, `password` | – |
-
 ```python
-from ark import Ark
+import ArkAPI
 
-# direkt zum Ark-Server, Port 8000
-ark = Ark.create_instance("10.0.0.5", "user", "pass")
-
-# oder über das lokale Gateway, Port 8006
-ark = Ark.create_gateway_instance("user", "pass")
+ark = ArkAPI.create_instance("10.0.0.5", "user", "pass")
 ```
 
-`connect()` wird von `create_instance()` aufgerufen und ist selten direkt nötig. Über das Gateway kann ein Reverse Proxy antworten, bevor Ark den Request sieht — solche Antworten tragen einen Code, den die Funktion nicht aufführt.
+Das ist der einzige vorgesehene Weg. Ark läuft fest auf Port 8000.
+
+| Aufruf | Pflicht |
+| ---------- | -------- |
+| `ArkAPI.create_instance(ip_addr, username, password)` | `ip_addr`, `username`, `password` |
+| `Ark.create_instance(ip_addr, username, password)` | `ip_addr`, `username`, `password` |
+| `ark.connect(ip_addr, username, password)` | `ip_addr`, `username`, `password` |
+
+Die Modulfunktion und die Staticmethode sind gleichwertig — `ArkAPI.create_instance()` delegiert an `Ark.create_instance()`. `connect()` wird von dort aufgerufen und ist selten direkt nötig.
+
+Sitzt ein Reverse Proxy vor dem Server, kann der antworten, bevor Ark den Request sieht. Solche Antworten tragen einen Code, den die jeweilige Funktion nicht aufführt — siehe [Ausführlicher Aufruf](#ausführlicher-aufruf).
 
 ---
 
@@ -531,6 +569,8 @@ Gibt eine `list` zurück, leer bei Disk-Backups.
 
 `POST /filestatus/` dokumentiert kein 404. Kommt trotzdem eins, meldet `message` den Code als für diesen Endpunkt undokumentiert.
 
+Bei `restore_hashes()` und 404 ist das `details`-Feld der API ein Objekt. `message` fällt dann auf den Spec-Text zurück, die Einzelheiten stehen in `last_response()` — siehe [message ist immer ein String](#message-ist-immer-ein-string).
+
 Der Ark-Port 8000 steht als Zahl in `connect()`. `FlowAPI.core` kennt dafür keine Konstante.
 
 ## Interne Funktionen
@@ -546,11 +586,11 @@ Alles mit `_` am Anfang ist intern und kann sich ohne Vorwarnung ändern: `_read
 __all__ = [
     name
     for name in dir()
-    if name.startswith(("Ark", "ARK_", "ERROR_"))
+    if name.startswith(("Ark", "ARK_", "create_"))
 ]
 ```
 
-Das sind sieben Namen: `Ark`, `ArkResult`, `ARK_VERSION` und die vier `ERROR_*`.
+Das sind vier Namen: `Ark`, `ArkResult`, `ARK_VERSION` und `create_instance`. Das Paket kennt keine Konstanten — Statuscodes sind Zahlen, Fehlerkennungen und Aufzählungswerte sind Zeichenketten.
 
 **Neue öffentliche Namen müssen einen dieser Prefixe tragen**, sonst tauchen
 sie im Paket nicht auf.
