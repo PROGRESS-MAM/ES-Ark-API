@@ -1245,6 +1245,10 @@ class Ark(Connection):
 
 
 # --------- KEEP THIS LINE AT THE END ---------
+
+# Toolbox filtert auf "tb_", hier gibt es keinen Prefix. Stattdessen die
+# Namensraeume des Moduls: so bleiben json, logging, Connection,
+# create_instance und create_gateway_instance_inner draussen.
 __all__ = [
     name
     for name in dir()
