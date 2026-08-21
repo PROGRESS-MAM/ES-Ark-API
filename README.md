@@ -18,7 +18,7 @@ dependencies = [
 
 ## Rückgabe-Prinzip
 
-Jede Methode gibt ein `ArkResult` zurück. Der Statuscode wird unverändert durchgereicht, ausgewertet wird im Caller.
+Jede Methode gibt ein `ArkResult` mit genau vier Attributen zurück. Der Statuscode wird unverändert durchgereicht, ausgewertet wird im Caller.
 
 ```python
 result = ark.get_file_status("2:d41d8cd98f00b204e9800998ecf8427e")
@@ -27,18 +27,28 @@ result.code        # 200, 400 oder 404
 result.data        # Nutzdaten, bei Fehlern der Leerwert der Methode
 result.message     # Klartext: details der API, sonst Text aus der Spezifikation
 result.error       # maschinenlesbar, z. B. "INVALID_HASH", sonst ""
-result.from_ark    # True, wenn code einer der vier dokumentierten Codes ist
-result.raw         # unveränderter Response-Body
-result.verb        # "GET", "POST" oder "HEAD"
-result.endpoint    # angefragter Pfad
 
 print(result)      # "200 A list of statuses for files managed by Ark"
 ```
 
-Die API kennt genau vier Codes: **200, 204, 400, 404**. Kommt etwas anderes an, ist `from_ark` `False` — dann hat nicht Ark geantwortet, sondern Gateway, Auth oder ein abgebrochener Socket. `code == 0` heißt: keine verwertbare Antwort.
+### Schlanker Aufruf
+
+Für die Endpunkte, die laut Spezifikation nur 200 kennen, reicht der Stil aus `FlowAPI.metadata` — `last_return_code()` ist von `Connection` geerbt und funktioniert:
 
 ```python
-if not result.from_ark:
+backups = ark.get_backups().data
+if ark.last_return_code() != 200:
+    ...
+```
+
+Vorsicht bei den Komfort-Funktionen: `search_all_backups()` schickt pro Seite einen Request, `find_backup()` einen internen `get_backups()`. `last_return_code()` zeigt danach nur den **letzten** Request, `result.code` dagegen den Code, auf den die Funktion gelaufen ist. Bei mehreren Aufrufen hintereinander überschreibt jeder neue Request den Wert — `result.code` bleibt erhalten.
+
+### Ausführlicher Aufruf
+
+Die API kennt genau vier Codes: **200, 204, 400, 404**. Kommt etwas anderes an, hat nicht Ark geantwortet, sondern Gateway, Auth oder ein abgebrochener Socket. `code == 0` heißt: keine verwertbare Antwort, siehe [Bekannte Fallstricke](#bekannte-fallstricke).
+
+```python
+if result.code not in ARK_CODES:
     raise RuntimeError(result.message)
 
 if result.code == 200:
@@ -69,7 +79,7 @@ ark = Ark.create_instance("10.0.0.5", "user", "pass")
 ark = Ark.create_gateway_instance("user", "pass")
 ```
 
-`connect()` wird von `create_instance()` aufgerufen und ist selten direkt nötig. Über das Gateway kann ein Reverse Proxy antworten, bevor Ark den Request sieht — solche Antworten haben `from_ark == False`.
+`connect()` wird von `create_instance()` aufgerufen und ist selten direkt nötig. Über das Gateway kann ein Reverse Proxy antworten, bevor Ark den Request sieht — solche Antworten tragen einen Code, der nicht in `ARK_CODES` steht.
 
 ---
 
@@ -189,7 +199,7 @@ for match in result.data:
 ```python
 result = ark.has_file_status("2:d41d8cd98f00b204e9800998ecf8427e")
 
-if not result.from_ark:
+if result.code not in ARK_CODES:
     raise RuntimeError(result.message)      # nicht loeschen, Antwort unklar
 
 if result.code == 204:

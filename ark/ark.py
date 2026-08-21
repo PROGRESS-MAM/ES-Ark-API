@@ -4,20 +4,7 @@ Wrapper fuer die EditShare Ark API.
 Spezifikation:
 https://developers.editshare.com/?urls.primaryName=EditShare%20Ark
 
-Die API kennt genau vier Statuscodes: 200, 204, 400 und 404. Jede
-oeffentliche Methode gibt ein ArkResult zurueck, das den Code
-unveraendert durchreicht. Die Auswertung macht der Aufrufer.
-
-Kommt ein Code, den die Spezifikation nicht kennt, ist ArkResult.code
-dieser Code und ArkResult.from_ark False - die Antwort stammt dann nicht
-vom dokumentierten Ark-Vertrag, sondern z. B. vom Gateway, von der
-Authentifizierung oder von einem abgebrochenen Socket.
 """
-
-# format() statt f-Strings, damit der Stil zur FlowAPI passt
-# pylint: disable=consider-using-f-string
-# Bleibt bewusst eine einzige Datei
-# pylint: disable=too-many-lines
 
 # --------- IMPORTS ---------
 
@@ -30,52 +17,37 @@ from FlowAPI.core import (
     create_instance,
 )
 
-# --------- KONSTANTEN ---------
+# --------- STATIC ---------
 
-ARK_VERSION = "1.0.0"
-
-# Auch hier gesetzt, damit die Version verfuegbar bleibt wenn das
-# Submodul das Paket schattet (Stern-Import)
+ARK_VERSION = "0.1.0"
 __version__ = ARK_VERSION
 
-# FlowAPI.core kennt keinen Port fuer Ark, daher hier definiert.
-# Siehe servers-Abschnitt der ark.yaml: https://{server}:8000/
 ARK_PORT = 8000
 
-# Die einzigen Statuscodes, die die Ark-Spezifikation dokumentiert
 ARK_OK = 200
 ARK_NO_CONTENT = 204
 ARK_BAD_REQUEST = 400
 ARK_NOT_FOUND = 404
 
 ARK_CODES = (ARK_OK, ARK_NO_CONTENT, ARK_BAD_REQUEST, ARK_NOT_FOUND)
-
-# Codes, bei denen ein Nutzdaten-Body erwartet wird
 ARK_SUCCESS_CODES = (ARK_OK, ARK_NO_CONTENT)
 
-# Maschinenlesbare Fehlerkennungen aus dem error-Feld der API.
-# Die Spezifikation nennt das Feld ausdruecklich fuer Verzweigungen
-# im aufrufenden Code.
 ERROR_INVALID_HASH = "INVALID_HASH"
 ERROR_INVALID_DESTINATION = "INVALID_DESTINATION"
 ERROR_INVALID_SOURCE = "INVALID_SOURCE"
 ERROR_MISSING_REQUIRED_FIELD = "MISSING_REQUIRED_FIELD"
 
-# Ark Backup-Quellen bzw. Storage-Typen
 SOURCE_DISK = "disk"
 SOURCE_TAPE = "tape"
 
-# Storage-Typen wie sie im filestatus-Response auftauchen
 STORAGE_DISK = "ark_disk"
 STORAGE_TAPE = "ark_tape"
 
-# Suchmodi fuer search_backups()
 SEARCH_EXACT = "exact"
 SEARCH_CONTAINS = "contains"
 SEARCH_WILDCARD = "wildcard"
 SEARCH_FLOW_HASH = "flow_hash"
 
-# Space-Typen fuer restore_backup()
 SPACE_MEDIA = "ms"
 SPACE_PROJECT = "ps"
 SPACE_PRIVATE = "priv"
@@ -84,9 +56,7 @@ SPACE_SETTINGS = "es"
 SPACE_FLOW = "flow"
 
 
-# --------- ERGEBNIS ---------
-
-
+# --------- RESULT ---------
 class ArkResult:
     """Ergebnis eines Ark-Requests
 
@@ -106,38 +76,16 @@ class ArkResult:
     error : str
         Maschinenlesbare Fehlerkennung der API, z. B. INVALID_HASH.
         Leer wenn die Antwort kein Fehler-Objekt war
-    from_ark : bool
-        True wenn code einer der vier dokumentierten Codes ist. False
-        heisst: die Antwort kam nicht vom dokumentierten Ark-Vertrag
-    raw : str
-        Der unveraenderte Response-Body
-    verb : str
-        Das HTTP-Verb des Requests
-    endpoint : str
-        Der angefragte Pfad
+
+    Mehr gibt es nicht. Ob der Code vom dokumentierten Ark-Vertrag
+    stammt, klaert ein "code in ARK_CODES" im Aufrufer.
     """
 
-    # pylint: disable=too-many-instance-attributes,too-many-arguments
-
-    def __init__(
-        self,
-        code,
-        *,
-        data=None,
-        message="",
-        error="",
-        raw="",
-        verb="",
-        endpoint="",
-    ):
+    def __init__(self, code, *, data=None, message="", error=""):
         self.code = int(code)
         self.data = data
         self.message = message
         self.error = error
-        self.from_ark = self.code in ARK_CODES
-        self.raw = raw
-        self.verb = verb
-        self.endpoint = endpoint
 
     def __str__(self):
         return "{} {}".format(self.code, self.message)
@@ -148,9 +96,7 @@ class ArkResult:
         )
 
 
-# --------- KLASSE ---------
-
-
+# --------- CLASS ---------
 class Ark(Connection):
     """Kapselt die zehn Operationen des Ark-Service
 
@@ -175,14 +121,11 @@ class Ark(Connection):
     find_tape und tapes_from_file_status.
     """
 
-    # pylint: disable=too-many-public-methods
-
     def __init__(self):
         super().__init__()
         self._service_name = "ark"
 
-    # --------- VERBINDUNG ---------
-
+    # --------- CONNECTION ---------
     @staticmethod
     def create_instance(ip_addr, username, password):
         """Direkte Verbindung zum Ark-Server aufbauen
@@ -227,7 +170,8 @@ class Ark(Connection):
         Notes
         -----
         Auf diesem Weg kann ein Reverse Proxy antworten, bevor Ark den
-        Request sieht. Solche Antworten haben from_ark False.
+        Request sieht. Solche Antworten tragen einen Code, der nicht in
+        ARK_CODES steht.
         """
 
         return create_gateway_instance_inner(Ark, username, password, ip_addr)
@@ -320,37 +264,31 @@ class Ark(Connection):
 
         code = self.lastReturnCode()
         error, details = self._read_error()
-        common = {
-            "raw": reply or "",
-            "verb": verb,
-            "endpoint": endpoint,
-            "error": error,
-        }
 
-        # Undokumentierter Code - nicht deuten, nur benennen
         if code not in ARK_CODES:
             return ArkResult(
                 code,
                 data=default,
+                error=error,
                 message=details
                 or "Undokumentierter Statuscode, Antwort stammt nicht vom "
                 "Ark-Vertrag: {}".format(str(reply or "").strip()[:160]),
-                **common
             )
 
-        # Dokumentierter Fehler - details der API hat Vorrang
         if code not in ARK_SUCCESS_CODES:
             return ArkResult(
                 code,
                 data=default,
+                error=error,
                 message=details or codes.get(code, ""),
-                **common
             )
 
-        # 204 hat per HTTP keinen Body
         if code == ARK_NO_CONTENT:
             return ArkResult(
-                code, data=default, message=codes.get(code, ""), **common
+                code,
+                data=default,
+                error=error,
+                message=codes.get(code, ""),
             )
 
         payload = default
@@ -361,19 +299,19 @@ class Ark(Connection):
                 # Typischer Fall: die Verbindung ist weggebrochen, core
                 # hat den alten Statuscode stehen gelassen und eine
                 # Klartext-Meldung in den Body gelegt. Der Code luegt,
-                # also from_ark ueber code=0 auf False ziehen.
+                # darum 0 statt code - 0 steht nicht in ARK_CODES.
                 return ArkResult(
                     0,
                     data=default,
+                    error=error,
                     message="Antwort ist kein gueltiges JSON, Statuscode {} "
                     "unglaubwuerdig (Verbindungsabbruch?): {}".format(
                         code, str(reply).strip()[:160]
                     ),
-                    **common
                 )
 
         return ArkResult(
-            code, data=payload, message=codes.get(code, ""), **common
+            code, data=payload, error=error, message=codes.get(code, "")
         )
 
     # --------- RESTORE ---------
@@ -746,7 +684,6 @@ class Ark(Connection):
         limit=100,
         offset=0,
     ):
-        # pylint: disable=too-many-arguments
         """Dateien in den indexierten Backups suchen
 
         POST /backup/search
@@ -834,7 +771,7 @@ class Ark(Connection):
             default={},
         )
 
-    # --------- KOMFORT ---------
+    # --------- COMFORT ---------
 
     def restore_backup(
         self,
@@ -848,7 +785,6 @@ class Ark(Connection):
         restore_date=None,
         restore_time=None,
     ):
-        # pylint: disable=too-many-arguments
         """Ein einzelnes Backup zurueckspielen
 
         Baut den Body und ruft restore_backups() auf.
@@ -921,7 +857,6 @@ class Ark(Connection):
         ark_sources=None,
         prefer_source=None,
     ):
-        # pylint: disable=too-many-arguments
         """Eine Liste von FLOW-Hashes in einen Media Space zurueckspielen
 
         Baut den Body und ruft restore_hashes() auf.
@@ -1177,7 +1112,6 @@ class Ark(Connection):
         page_size=1000,
         max_results=0,
     ):
-        # pylint: disable=too-many-arguments
         """Alle Treffer einer Suche seitenweise holen
 
         Ruft search_backups() so oft auf, bis total_matches erreicht ist.
