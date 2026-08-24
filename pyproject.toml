@@ -22,6 +22,11 @@ version = { attr = "ArkAPI.ark.ARK_VERSION" }
 where = ["."]
 include = ["ArkAPI*"]
 
+# py.typed muss ins Wheel, sonst gilt das Paket fuer Type Checker als
+# untypisiert und mypy/Pyright ignorieren die Annotationen.
+[tool.setuptools.package-data]
+ArkAPI = ["py.typed"]
+
 [tool.pylint.main]
 max-public-methods = 25
 max-args = 8

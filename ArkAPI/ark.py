@@ -15,7 +15,7 @@ from FlowAPI.core import Connection
 
 # --------- STATIC ---------
 
-ARK_VERSION = "0.1.2"
+ARK_VERSION = "0.1.3"
 __version__ = ARK_VERSION
 
 
@@ -1155,8 +1155,14 @@ class Ark(Connection):
 
 
 # --------- KEEP THIS LINE AT THE END ---------
+# Explizit gepflegt, nicht ueber dir() erzeugt: ein zur Laufzeit
+# gebautes __all__ kann weder ein Type Checker auswerten (Pylance sieht
+# Ark dann nicht als Export von ArkAPI) noch Python vor 3.12 korrekt
+# fuellen, weil Comprehensions dort einen eigenen Scope haben und dir()
+# nur deren lokale Namen liefert. Neuer oeffentlicher Name: hier
+# eintragen.
 __all__ = [
-    name
-    for name in dir()
-    if name.startswith(("Ark", "ARK_", "create_"))
+    "ARK_VERSION",
+    "Ark",
+    "ArkResult",
 ]
