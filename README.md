@@ -32,33 +32,21 @@ pip install -e .
 
 **3. [Komfort-Funktionen](#komfort-funktionen)**
 
-| Funktion | Beschreibung | nutzt |
+| | | |
 | --- | --- | --- |
-| [restore_backup](#restore_backup) | Ein einzelnes Backup zurückspielen | `restore_backups()` |
-| [restore_files_by_hash](#restore_files_by_hash) | Eine Liste von FLOW-Hashes in einen Media Space zurückspielen | `restore_hashes()` |
-| [search_by_flow_hash](#search_by_flow_hash) | Den Backup-Index nach einem FLOW-Hash durchsuchen | `search_backups()` |
-| [search_all_backups](#search_all_backups) | Alle Treffer einer Suche seitenweise holen | `search_backups()` |
-| [get_tapes](#get_tapes) | Alle bekannten Tapes holen | `get_tape_library_status()` |
-| [find_tape](#find_tape) | Ein Tape-Volume über seinen Barcode finden | `get_tape_library_status()` |
-| [find_backup](#find_backup) | Ein einzelnes Backup über seine ID finden | `get_backups()` |
-| [find_backups_by_space_name](#find_backups_by_space_name) | Alle Backups eines Media Space über den Namen finden | `get_backups()` |
-| [find_backups_by_space_uuid](#find_backups_by_space_uuid) | Alle Backups eines Media Space über die UUID finden | `get_backups()` |
-| [tapes_from_file_status](#tapes_from_file_status) | Barcodes der Tapes aus einem `filestatus`-Eintrag sammeln | kein Request |
+| [restore_backup](#restore_backup) | [restore_files_by_hash](#restore_files_by_hash) | [search_by_flow_hash](#search_by_flow_hash) |
+| [search_all_backups](#search_all_backups) | [get_tapes](#get_tapes) | [find_tape](#find_tape) |
+| [find_backup](#find_backup) | [find_backups_by_space_name](#find_backups_by_space_name) | [find_backups_by_space_uuid](#find_backups_by_space_uuid) |
+| [tapes_from_file_status](#tapes_from_file_status) |  |  |
 
 **4. [API-Wrapper-Funktionen](#api-wrapper-funktionen)**
 
-| Funktion | Endpunkt | Codes |
+| | | |
 | --- | --- | --- |
-| [get_backups](#get_backups) | `GET /restore/backups` | 200 |
-| [restore_backups](#restore_backups) | `POST /restore/restoreBackups` | 200 |
-| [restore_hashes](#restore_hashes) | `POST /restore/hashes` | 200, 400, 404 |
-| [get_file_hash_database_status](#get_file_hash_database_status) | `GET /filestatus/database` | 200 |
-| [get_file_status](#get_file_status) | `GET /filestatus/{FileHash}` | 200, 400, 404 |
-| [has_file_status](#has_file_status) | `HEAD /filestatus/{FileHash}` | 204, 400, 404 |
-| [get_file_statuses](#get_file_statuses) | `POST /filestatus/` | 200, 400 |
-| [get_disk_search_status](#get_disk_search_status) | `GET /backup/disk/search/status` | 200 |
-| [search_backups](#search_backups) | `POST /backup/search` | 200, 400 |
-| [get_tape_library_status](#get_tape_library_status) | `GET /api/tape/library/tapes` | 200 |
+| [get_backups](#get_backups) | [restore_backups](#restore_backups) | [restore_hashes](#restore_hashes) |
+| [get_file_hash_database_status](#get_file_hash_database_status) | [get_file_status](#get_file_status) | [has_file_status](#has_file_status) |
+| [get_file_statuses](#get_file_statuses) | [get_disk_search_status](#get_disk_search_status) | [search_backups](#search_backups) |
+| [get_tape_library_status](#get_tape_library_status) |  |  |
 
 **5. [Rückgabe-Prinzip](#rückgabe-prinzip)**
 
@@ -618,7 +606,7 @@ result.error       # maschinenlesbar, z. B. "INVALID_HASH", sonst ""
 print(result)      # "200 A list of statuses for files managed by Ark"
 ```
 
-`code == 0` bedeutet Verbindungsabbruch oder keine verwertbaren Daten — die Antwort kam dann nicht von Ark.
+`code == 0` kommt nicht von Ark, sondern vom Wrapper: die Antwort liess sich nicht als JSON lesen. Typischer Fall ist ein Verbindungsabbruch — dann steht statt JSON eine Klartextmeldung im Body, und die trägt `message`. `data` ist der Leerwert der Methode, `error` ist leer.
 
 [to Top](#inhalt)
 
