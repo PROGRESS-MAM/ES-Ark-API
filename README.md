@@ -606,8 +606,6 @@ result.error       # maschinenlesbar, z. B. "INVALID_HASH", sonst ""
 print(result)      # "200 A list of statuses for files managed by Ark"
 ```
 
-`code == 0` kommt nicht von Ark, sondern vom Wrapper: die Antwort liess sich nicht als JSON lesen. Typischer Fall ist ein Verbindungsabbruch — dann steht statt JSON eine Klartextmeldung im Body, und die trägt `message`. `data` ist der Leerwert der Methode, `error` ist leer.
-
 [to Top](#inhalt)
 
 ### Fehlerkennungen
@@ -622,12 +620,11 @@ if result.code == 400:
         ...             # Restore-Ziel falsch konfiguriert
 ```
 
-Ein Code sagt nicht, welche Kennung kommt: bei `restore_hashes()` kann 400 alle vier Ursachen bedeuten.
-
 Was welcher Endpunkt liefert:
 
-| Funktion | Code | `error` |
+| Funktion | Code | Error |
 | --- | --- | --- |
+| `alle` | 0 | `Verbindungsabbruch - Klartextmeldung im message` |
 | `restore_hashes()` | 400 | `INVALID_HASH`, `INVALID_DESTINATION`, `INVALID_SOURCE`, `MISSING_REQUIRED_FIELD` |
 | `restore_hashes()` | 404 | `HASHES_NOT_RESTORABLE` |
 | `get_file_status()` | 400 | `INVALID_HASH` |
