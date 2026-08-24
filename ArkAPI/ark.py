@@ -15,7 +15,7 @@ from FlowAPI.core import Connection
 
 # --------- STATIC ---------
 
-ARK_VERSION = "0.1.1"
+ARK_VERSION = "0.1.2"
 __version__ = ARK_VERSION
 
 
