@@ -26,33 +26,43 @@ pip install -e .
 
 ## Inhalt
 
-- [Installation](#installation)
-- [Verbinden](#verbinden)
-- [Komfort-Funktionen](#komfort-funktionen)
-  - [restore_backup](#restore_backup)
-  - [restore_files_by_hash](#restore_files_by_hash)
-  - [search_by_flow_hash](#search_by_flow_hash)
-  - [search_all_backups](#search_all_backups)
-  - [get_tapes](#get_tapes)
-  - [find_tape](#find_tape)
-  - [find_backup](#find_backup)
-  - [find_backups_by_space_name](#find_backups_by_space_name)
-  - [find_backups_by_space_uuid](#find_backups_by_space_uuid)
-  - [tapes_from_file_status](#tapes_from_file_status)
-- [API-Wrapper-Funktionen](#api-wrapper-funktionen)
-  - [get_backups](#get_backups)
-  - [restore_backups](#restore_backups)
-  - [restore_hashes](#restore_hashes)
-  - [get_file_hash_database_status](#get_file_hash_database_status)
-  - [get_file_status](#get_file_status)
-  - [has_file_status](#has_file_status)
-  - [get_file_statuses](#get_file_statuses)
-  - [get_disk_search_status](#get_disk_search_status)
-  - [search_backups](#search_backups)
-  - [get_tape_library_status](#get_tape_library_status)
-- [Rückgabe-Prinzip](#rückgabe-prinzip)
-  - [Fehlerkennungen](#fehlerkennungen)
-- [Referenz](#referenz)
+**1. [Installation](#installation)**
+
+**2. [Verbinden](#verbinden)**
+
+**3. [Komfort-Funktionen](#komfort-funktionen)**
+
+| Funktion | Beschreibung | nutzt |
+| --- | --- | --- |
+| [restore_backup](#restore_backup) | Ein einzelnes Backup zurückspielen | `restore_backups()` |
+| [restore_files_by_hash](#restore_files_by_hash) | Eine Liste von FLOW-Hashes in einen Media Space zurückspielen | `restore_hashes()` |
+| [search_by_flow_hash](#search_by_flow_hash) | Den Backup-Index nach einem FLOW-Hash durchsuchen | `search_backups()` |
+| [search_all_backups](#search_all_backups) | Alle Treffer einer Suche seitenweise holen | `search_backups()` |
+| [get_tapes](#get_tapes) | Alle bekannten Tapes holen | `get_tape_library_status()` |
+| [find_tape](#find_tape) | Ein Tape-Volume über seinen Barcode finden | `get_tape_library_status()` |
+| [find_backup](#find_backup) | Ein einzelnes Backup über seine ID finden | `get_backups()` |
+| [find_backups_by_space_name](#find_backups_by_space_name) | Alle Backups eines Media Space über den Namen finden | `get_backups()` |
+| [find_backups_by_space_uuid](#find_backups_by_space_uuid) | Alle Backups eines Media Space über die UUID finden | `get_backups()` |
+| [tapes_from_file_status](#tapes_from_file_status) | Barcodes der Tapes aus einem `filestatus`-Eintrag sammeln | kein Request |
+
+**4. [API-Wrapper-Funktionen](#api-wrapper-funktionen)**
+
+| Funktion | Endpunkt | Codes |
+| --- | --- | --- |
+| [get_backups](#get_backups) | `GET /restore/backups` | 200 |
+| [restore_backups](#restore_backups) | `POST /restore/restoreBackups` | 200 |
+| [restore_hashes](#restore_hashes) | `POST /restore/hashes` | 200, 400, 404 |
+| [get_file_hash_database_status](#get_file_hash_database_status) | `GET /filestatus/database` | 200 |
+| [get_file_status](#get_file_status) | `GET /filestatus/{FileHash}` | 200, 400, 404 |
+| [has_file_status](#has_file_status) | `HEAD /filestatus/{FileHash}` | 204, 400, 404 |
+| [get_file_statuses](#get_file_statuses) | `POST /filestatus/` | 200, 400 |
+| [get_disk_search_status](#get_disk_search_status) | `GET /backup/disk/search/status` | 200 |
+| [search_backups](#search_backups) | `POST /backup/search` | 200, 400 |
+| [get_tape_library_status](#get_tape_library_status) | `GET /api/tape/library/tapes` | 200 |
+
+**5. [Rückgabe-Prinzip](#rückgabe-prinzip)**
+
+**6. [Referenz](#referenz)**
 
 ## Verbinden
 
@@ -64,9 +74,13 @@ ark = ArkAPI.Ark.create_instance(
 )
 ```
 
+[to Top](#inhalt)
+
 ## Komfort-Funktionen
 
 Setzen auf den [API-Wrapper-Funktionen](#api-wrapper-funktionen) auf. Das Muster hinter den `if`/`elif`-Ketten steht unter [Rückgabe-Prinzip](#rückgabe-prinzip).
+
+[to Top](#inhalt)
 
 ### restore_backup
 
@@ -100,6 +114,8 @@ else:
 ```
 
 `target` besteht bei Media Spaces aus drei durch je drei Bindestriche getrennten Teilen: ESA-Gruppe, Server-Group-Member und Pfad zum Bit Bucket. Bei allen anderen Space-Typen genügt die ESA-Gruppe, z. B. `esa_HiNbl`.
+
+[to Top](#inhalt)
 
 ### restore_files_by_hash
 
@@ -139,6 +155,8 @@ else:
     raise RuntimeError(result.message)
 ```
 
+[to Top](#inhalt)
+
 ### search_by_flow_hash
 
 Den Backup-Index nach einem FLOW-Hash durchsuchen, ruft [search_backups](#search_backups) im Modus `flow_hash` auf.
@@ -163,6 +181,8 @@ else:
 ```
 
 Andere Hash-Versionen unterstützt dieser Suchmodus nicht, sie werden als Warnung geloggt.
+
+[to Top](#inhalt)
 
 ### search_all_backups
 
@@ -190,6 +210,8 @@ else:
 
 `data` ist die flache Liste aller Treffer, kein Seitenobjekt. Bricht eine Seite mit einem anderen Code als 200 ab, kommt deren Ergebnis zurück.
 
+[to Top](#inhalt)
+
 ### get_tapes
 
 Alle bekannten Tapes holen, ruft [get_tape_library_status](#get_tape_library_status) auf und gibt nur die Tape-Liste als `data` zurück.
@@ -207,6 +229,8 @@ else:
 ```
 
 Enthält alle Tape-Volumes, nicht nur die aktuell geladenen.
+
+[to Top](#inhalt)
 
 ### find_tape
 
@@ -229,6 +253,8 @@ else:
 
 `data` ist der passende Eintrag oder `{}`. Ein leeres `data` bei Code 200 heißt: nicht gefunden.
 
+[to Top](#inhalt)
+
 ### find_backup
 
 Ein einzelnes Backup über seine ID finden, filtert [get_backups](#get_backups).
@@ -247,6 +273,8 @@ elif result.code == 200:
 else:
     raise RuntimeError(result.message)
 ```
+
+[to Top](#inhalt)
 
 ### find_backups_by_space_name
 
@@ -272,6 +300,8 @@ else:
 
 `data` ist die Liste der passenden Backups, leer wenn keins passt.
 
+[to Top](#inhalt)
+
 ### find_backups_by_space_uuid
 
 Alle Backups eines Media Space über UUID finden, filtert [get_backups](#get_backups).
@@ -289,6 +319,8 @@ else:
     raise RuntimeError(result.message)
 ```
 
+[to Top](#inhalt)
+
 ### tapes_from_file_status
 
 Barcodes der Tapes aus einem `filestatus`-Eintrag sammeln. Reine Auswertung, kein Request.
@@ -305,11 +337,15 @@ for match in ark.get_file_status(flow_hash).data:
 
 Gibt eine `list` zurück, leer bei Disk-Backups.
 
+[to Top](#inhalt)
+
 ---
 
 ## API-Wrapper-Funktionen
 
 Die zehn Operationen der API, je eine Methode pro Endpunkt. Die `if`/`elif`-Ketten führen genau die Codes auf, die die Spezifikation für diesen Endpunkt dokumentiert. Jeder andere Code landet im `else`.
+
+[to Top](#inhalt)
 
 ### get_backups
 
@@ -328,6 +364,8 @@ else:
 ```
 
 `data` ist die Liste der Backups auf Ark Disk und Ark Tape, bei keinen Backups leer. Jeder Eintrag enthält unter anderem `backup_id`, `backup_type`, `date`, `media_space_name`, `media_space_uuid` und `destination_name`.
+
+[to Top](#inhalt)
 
 ### restore_backups
 
@@ -351,6 +389,8 @@ else:
 ```
 
 Der Service antwortet mit einem reinen JSON-String, nicht mit einem Objekt. `data` ist deshalb ein `str`. Bequemer geht es mit [restore_backup](#restore_backup).
+
+[to Top](#inhalt)
 
 ### restore_hashes
 
@@ -386,6 +426,8 @@ else:
 
 Es gilt alles oder nichts: ein einziger nicht restaurierbarer Hash lässt den ganzen Auftrag scheitern. Bei 400 und 404 ist `data` ein leeres `dict`. Bequemer geht es mit [restore_files_by_hash](#restore_files_by_hash).
 
+[to Top](#inhalt)
+
 ### get_file_hash_database_status
 
 `GET /filestatus/database` — Status des Hash-Imports in die Ark-Datenbank.
@@ -403,6 +445,8 @@ if result.code == 200:
 else:
     raise RuntimeError(result.message)
 ```
+
+[to Top](#inhalt)
 
 ### get_file_status
 
@@ -431,6 +475,8 @@ else:
 
 404 ist eine Fachauskunft, kein Transportfehler. Wer daran eine Löschentscheidung hängt, muss 400 und 404 unterscheiden — beide liefern eine leere `data`.
 
+[to Top](#inhalt)
+
 ### has_file_status
 
 `HEAD /filestatus/{FileHash}` — nur prüfen, ob Ark eine Kopie hat. Die günstige Variante von [get_file_status](#get_file_status): kein Body, nur der Statuscode. Für Schleifen über viele Dateien deutlich sparsamer.
@@ -456,6 +502,8 @@ else:
 
 Diese Operation liefert **kein 200** — ein Vergleich auf 200 geht hier immer schief. Keiner der drei Codes hat einen Body, `data` ist immer `None` und `error` immer `""`. Die Auskunft steckt allein im Code.
 
+[to Top](#inhalt)
+
 ### get_file_statuses
 
 `POST /filestatus/` — Massenabfrage für viele Hashes.
@@ -480,6 +528,8 @@ else:
 
 Diese Operation kennt **kein 404**. Hashes ohne Kopie fehlen einfach im Ergebnis, ein Abgleich mit `hash_list` zeigt also, welche Dateien nicht in Ark liegen.
 
+[to Top](#inhalt)
+
 ### get_disk_search_status
 
 `GET /backup/disk/search/status` — Indexierungsstatus der Disk-Backups.
@@ -496,6 +546,8 @@ else:
 ```
 
 `data` enthält `total`, `indexed`, `indexing`, `not_indexed`, `needs_indexing` und `total_files`. Nur indexierte Disk-Backups sind über [search_backups](#search_backups) auffindbar, daher vor einer Suche prüfen.
+
+[to Top](#inhalt)
 
 ### search_backups
 
@@ -528,6 +580,8 @@ else:
 
 `data` enthält bei 200 `total_matches`, `limit`, `offset` und `results`, sonst ein leeres `dict`. Für alle Seiten auf einmal siehe [search_all_backups](#search_all_backups).
 
+[to Top](#inhalt)
+
 ### get_tape_library_status
 
 `GET /api/tape/library/tapes` — Status der Tape Library inklusive Inventar.
@@ -545,6 +599,8 @@ else:
 
 `data` enthält `tapes` und `timestamp`. Pro Tape sind laut Spezifikation nur `barcode` und `in_changer` Pflicht; dazu kommen `slot`, `storage_name`, `lto_generation` und `server_id`. `slot` darf `null` sein, wenn das Band nicht im Wechsler steckt. Am laufenden System liefert der Endpunkt mehr Felder als die Spezifikation deklariert — `_request()` reicht den geparsten Body unverändert durch, es geht also nichts verloren. Wer nur die Liste braucht, nimmt [get_tapes](#get_tapes).
 
+[to Top](#inhalt)
+
 ---
 
 ## Rückgabe-Prinzip
@@ -561,6 +617,10 @@ result.error       # maschinenlesbar, z. B. "INVALID_HASH", sonst ""
 
 print(result)      # "200 A list of statuses for files managed by Ark"
 ```
+
+`code == 0` bedeutet Verbindungsabbruch oder keine verwertbaren Daten — die Antwort kam dann nicht von Ark.
+
+[to Top](#inhalt)
 
 ### Fehlerkennungen
 
@@ -590,6 +650,11 @@ Was welcher Endpunkt liefert:
 
 Die Komfort-Funktionen erben die Werte der Funktion, die sie aufrufen.
 
+[to Top](#inhalt)
+
 ## Referenz
 
 [EditShare Ark API](https://developers.editshare.com/?urls.primaryName=EditShare%20Ark)
+
+[to Top](#inhalt)
+
