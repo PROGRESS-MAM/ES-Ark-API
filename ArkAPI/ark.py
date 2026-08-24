@@ -12,7 +12,6 @@ import json
 import logging
 
 from FlowAPI.core import Connection
-from FlowAPI.core import create_instance as _create_instance
 
 # --------- STATIC ---------
 
@@ -94,10 +93,41 @@ class Ark(Connection):
         self._service_name = "ark"
 
     # --------- CONNECTION ---------
+    @staticmethod
+    def create_instance(username, password, ip_addr):
+        """Direkt verbundene Ark-Instanz erzeugen
+
+        Parameters
+        ----------
+        username : str
+            Benutzername fuer BasicAuth (Pflicht)
+        password : str
+            Passwort fuer BasicAuth (Pflicht)
+        ip_addr : str
+            IP oder Hostname des Ark-Servers (Pflicht)
+
+        Returns
+        -------
+        Ark
+            Verbundene Instanz, HTTPS auf Port 8000
+
+        Examples
+        --------
+        >>> import ArkAPI
+        >>> ark = ArkAPI.Ark.create_instance(
+        ...     os.environ.get("FLOW_USER"),
+        ...     os.environ.get("FLOW_PASSWORD"),
+        ...     os.environ.get("FLOW_HOST"))
+        """
+
+        ark = Ark()
+        ark.connect(ip_addr, username, password)
+        return ark
+
     def connect(self, ip_addr, username, password):
         """Verbindung zum Ark-Server herstellen
 
-        Wird von ArkAPI.create_instance() aufgerufen und ueberschreibt
+        Wird von create_instance() aufgerufen und ueberschreibt
         Connection.connect() der FlowAPI mit festem Port.
 
         Parameters
@@ -1122,44 +1152,6 @@ class Ark(Connection):
 
         result.data = results
         return result
-
-
-# --------- FACTORY ---------
-
-
-def create_instance(username, password, ip_addr):
-    """Direkt verbundene Ark-Instanz erzeugen
-
-    Parameters
-    ----------
-    username : str
-        Benutzername fuer BasicAuth (Pflicht)
-    password : str
-        Passwort fuer BasicAuth (Pflicht)
-    ip_addr : str
-        IP oder Hostname des Ark-Servers (Pflicht)
-
-    Returns
-    -------
-    Ark
-        Verbundene Instanz, HTTPS auf Port 8000
-
-    Notes
-    -----
-    Die Reihenfolge der Argumente folgt dem Muster der Toolbox.
-    core.create_instance() erwartet den Host zuerst, das dreht diese
-    Funktion um
-
-    Examples
-    --------
-    >>> import ArkAPI
-    >>> ark = ArkAPI.create_instance(
-    ...     os.environ.get("FLOW_USER"),
-    ...     os.environ.get("FLOW_PASSWORD"),
-    ...     os.environ.get("FLOW_HOST"))
-    """
-
-    return _create_instance(Ark, ip_addr, username, password)
 
 
 # --------- KEEP THIS LINE AT THE END ---------

@@ -137,12 +137,12 @@ Das Objekt landet **nicht** in `data`. `data` behält bei jedem Fehler den Leerw
 
 ## Verbinden
 
-Die Argumente kommen in der Reihenfolge der Toolbox: **Benutzer, Passwort, Host**.
+Eine statische Fabrik an der Klasse, wie bei `FlowAPI.Metadata`. Die Argumente kommen in der Reihenfolge der Toolbox: **Benutzer, Passwort, Host**.
 
 ```python
 import ArkAPI
 
-ark = ArkAPI.create_instance(
+ark = ArkAPI.Ark.create_instance(
     os.environ.get("FLOW_USER"),
     os.environ.get("FLOW_PASSWORD"),
     os.environ.get("FLOW_HOST"),
@@ -153,22 +153,29 @@ Alle drei Werte sind Pflicht. Ark antwortet per HTTPS auf Port 8000.
 
 | Aufruf | Port |
 | ---------- | ---- |
-| `ArkAPI.create_instance(username, password, ip_addr)` | 8000 |
+| `ArkAPI.Ark.create_instance(username, password, ip_addr)` | 8000 |
 | `ark.connect(ip_addr, username, password)` | 8000 |
+
+Auf Modulebene gibt es keine Funktionen. `ArkAPI.create_instance(...)` ohne `Ark.` dazwischen existiert nicht.
 
 Die Umgebungsvariablen liest das aufrufende Projekt, nicht `ArkAPI` — genauso wie in der Toolbox. Das Paket kennt keine Variablennamen. Liegen sie in einer `.env`, braucht es `load_dotenv()` davor; `os.environ` liest solche Dateien nicht von allein.
 
 `connect()` wird von `create_instance()` aufgerufen und ist selten direkt nötig.
 
-### Warum die Reihenfolge von core abweicht
+### Wo der Port steht
 
-`FlowAPI.core` erwartet den Host zuerst:
+`create_instance()` erzeugt die Instanz und ruft `connect()` auf, und nur dort steht die 8000:
 
 ```python
-def create_instance(api, host_ip, username, password)
+def connect(self, ip_addr, username, password):
+    return Connection.connect2(self, ip_addr, 8000, username, password)
 ```
 
-`ArkAPI.create_instance()` nimmt stattdessen `(username, password, ip_addr)` und dreht die Reihenfolge intern zurück. So sieht der Aufruf aus wie in der Toolbox.
+`FlowAPI.core.create_instance()` wird dabei nicht benutzt. Diese Funktion erwartet den Host zuerst, und nur um das auszugleichen gab es hier früher eine Umdrehung der Argumente. Ohne sie ist die Reihenfolge frei wählbar und folgt der Toolbox. `FlowAPI.Metadata` ist an dieser Stelle in sich uneinheitlich: die direkte Fabrik nimmt den Host zuerst, die Gateway-Fabrik zuletzt.
+
+`Ark` bleibt trotzdem eine reguläre FlowAPI-Serviceklasse: `connect()` hat die Signatur, die `core.create_instance(Ark, host, user, pw)` erwartet, dieser Weg funktioniert also weiter. Er wird hier nur nicht gebraucht.
+
+Im laufenden Betrieb ruft `connect()` niemand mehr auf. Reisst die Verbindung ab, verbindet `do_request()` in `core` selbst neu über `reconnect()`, und das greift bei gesetzter BasicAuth direkt auf `connect2()` mit dem gemerkten Port zurück.
 
 ### Kein Weg über den FLOW-Gateway
 
@@ -625,7 +632,7 @@ __all__ = [
 ]
 ```
 
-Das sind vier Namen: `Ark`, `ArkResult`, `ARK_VERSION` und `create_instance`. Der Alias mit `_` beim Import aus `core` ist Pflicht — ohne ihn fängt der Filter auf `create_` auch den core-Namen ein. Das Paket kennt keine Konstanten — Statuscodes sind Zahlen, Fehlerkennungen und Aufzählungswerte sind Zeichenketten.
+Das sind drei Namen: `Ark`, `ArkResult` und `ARK_VERSION`. Aus `FlowAPI.core` kommt nur `Connection`, und weil dieser Name keinen der Prefixe trägt, braucht es dafür keinen Alias. Der Prefix `create_` greift derzeit nichts, weil `create_instance` an der Klasse hängt und nicht am Modul — er bleibt als Konvention für den Fall stehen, dass doch einmal eine Modulfunktion dazukommt. Das Paket kennt keine Konstanten — Statuscodes sind Zahlen, Fehlerkennungen und Aufzählungswerte sind Zeichenketten.
 
 **Neue öffentliche Namen müssen einen dieser Prefixe tragen**, sonst tauchen
 sie im Paket nicht auf.
