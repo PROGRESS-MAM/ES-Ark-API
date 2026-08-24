@@ -10,14 +10,6 @@ Als Abhängigkeit direkt aus GitHub:
 pip install "ArkAPI @ git+https://github.com/PROGRESS-MAM/ES-Ark-API.git@main"
 ```
 
-Die Anführungszeichen sind Pflicht, sobald Leerzeichen um das `@` stehen — sonst zerlegt die Shell den Ausdruck in zwei Argumente. Ohne Leerzeichen geht es auch ohne:
-
-```powershell
-pip install ArkAPI@git+https://github.com/PROGRESS-MAM/ES-Ark-API.git@main
-```
-
-Das letzte `@main` wählt den Branch. Ein Tag oder Commit funktioniert genauso, z. B. `@v0.1.1`.
-
 In einem anderen Projekt als Abhängigkeit eintragen:
 
 ```toml
@@ -31,8 +23,6 @@ Zum Entwickeln am Paket selbst, aus dem Wurzelverzeichnis des Repos:
 ```powershell
 pip install -e .
 ```
-
-`-e` steht für editable. Statt die Dateien nach `site-packages` zu kopieren, legt pip dort nur einen Verweis auf dieses Verzeichnis ab. Änderungen an `ArkAPI/ark.py` sind damit beim nächsten Start des Python-Prozesses wirksam, ohne erneutes Installieren. Ein `pip install .` ohne `-e` kopiert dagegen und friert den Stand ein — dann arbeitet man weiter an einer Datei, die niemand mehr importiert. Für Projekte, die ArkAPI nur benutzen, ist die Variante aus GitHub die richtige.
 
 ## Inhalt
 
@@ -61,13 +51,7 @@ pip install -e .
   - [search_backups](#search_backups)
   - [get_tape_library_status](#get_tape_library_status)
 - [Rückgabe-Prinzip](#rückgabe-prinzip)
-  - [Das Muster in den Snippets](#das-muster-in-den-snippets)
-  - [Schlanker Aufruf](#schlanker-aufruf)
   - [Fehlerkennungen](#fehlerkennungen)
-  - [message ist immer ein String](#message-ist-immer-ein-string)
-- [Bekannte Fallstricke](#bekannte-fallstricke)
-- [Interne Funktionen](#interne-funktionen)
-- [Exportliste](#exportliste)
 - [Referenz](#referenz)
 
 ## Verbinden
@@ -76,27 +60,13 @@ pip install -e .
 import ArkAPI
 
 ark = ArkAPI.Ark.create_instance(
-    os.environ.get("FLOW_USER"),
-    os.environ.get("FLOW_PASSWORD"),
-    os.environ.get("FLOW_HOST"),
+    os.environ.get("FLOW_USER"), os.environ.get("FLOW_PASSWORD"), os.environ.get("FLOW_HOST"),
 )
 ```
 
-Alle drei Werte sind Pflicht, die Reihenfolge ist **Benutzer, Passwort, Host**. Ark antwortet per HTTPS auf Port 8000.
-
-Eine statische Fabrik an der Klasse, wie bei `FlowAPI.Metadata`. Auf Modulebene gibt es keine Funktionen — `ArkAPI.create_instance(...)` ohne `Ark.` dazwischen existiert nicht.
-
-Die Umgebungsvariablen liest das aufrufende Projekt, nicht `ArkAPI`, genauso wie in der Toolbox. Das Paket kennt keine Variablennamen. Liegen die Werte in einer `.env`, braucht es `load_dotenv()` davor; `os.environ` liest solche Dateien nicht von allein. Fehlt eine Variable, gibt `os.environ.get()` ein `None` zurück, das bis in `http.client` durchläuft und dort als schwer lesbarer `TypeError` auffällt.
-
-Ark ist über den FLOW-Gateway auf Port 8006 **nicht** erreichbar. Am laufenden System geprüft: der direkte Weg auf Port 8000 antwortet, der Gateway nicht. Die Spezifikation nennt als Server ausschliesslich `https://{server}:8000/` ohne Basispfad. Deshalb gibt es hier bewusst kein `create_gateway_instance()`, anders als bei `FlowAPI.Metadata`.
-
-Sitzt ein Reverse Proxy vor dem Server, kann der antworten, bevor Ark den Request sieht. Solche Antworten tragen einen Code, den die jeweilige Funktion nicht aufführt, und landen im `else`-Zweig.
-
----
-
 ## Komfort-Funktionen
 
-Setzen auf den [API-Wrapper-Funktionen](#api-wrapper-funktionen) auf und kennen keinen eigenen Endpunkt. Ihre Statuscodes sind die der jeweils aufgerufenen Funktion. Das Muster hinter den `if`/`elif`-Ketten steht unter [Rückgabe-Prinzip](#rückgabe-prinzip).
+Setzen auf den [API-Wrapper-Funktionen](#api-wrapper-funktionen) auf. Das Muster hinter den `if`/`elif`-Ketten steht unter [Rückgabe-Prinzip](#rückgabe-prinzip).
 
 ### restore_backup
 
@@ -123,7 +93,8 @@ result = ark.restore_backup(
 )
 
 if result.code == 200:
-    print("Job:", result.data)                  # restorejob_sovh0C
+    # restorejob_sovh0C
+    print("Job:", result.data)                  
 else:
     raise RuntimeError(result.message)
 ```
@@ -159,7 +130,9 @@ elif result.code == 404:
     # HASHES_NOT_RESTORABLE, message listet die Hashes als JSON
     logging.error("nicht restaurierbar: %s", result.message)
 elif result.code == 400:
-    # INVALID_HASH, INVALID_DESTINATION, INVALID_SOURCE,
+    # INVALID_HASH,
+    # INVALID_DESTINATION,
+    # INVALID_SOURCE,
     # MISSING_REQUIRED_FIELD
     print(result.error, result.message)
 else:
@@ -183,7 +156,8 @@ if result.code == 200:
     for hit in result.data["results"]:
         print(hit["filename"])
 elif result.code == 400:
-    print(result.error, result.message)         # INVALID_HASH
+    # INVALID_HASH
+    print(result.error, result.message)         
 else:
     raise RuntimeError(result.message)
 ```
@@ -300,7 +274,7 @@ else:
 
 ### find_backups_by_space_uuid
 
-Dasselbe über die UUID.
+Alle Backups eines Media Space über UUID finden, filtert [get_backups](#get_backups).
 
 | Argument | Pflicht | Beschreibung |
 | --- | --- | --- |
@@ -317,7 +291,7 @@ else:
 
 ### tapes_from_file_status
 
-Barcodes der Tapes aus einem `filestatus`-Eintrag sammeln. Reine Auswertung, kein Request — daher `@staticmethod`, **ohne** `ArkResult` und ohne Statuscode.
+Barcodes der Tapes aus einem `filestatus`-Eintrag sammeln. Reine Auswertung, kein Request.
 
 | Argument | Pflicht | Beschreibung |
 | --- | --- | --- |
@@ -325,7 +299,8 @@ Barcodes der Tapes aus einem `filestatus`-Eintrag sammeln. Reine Auswertung, kei
 
 ```python
 for match in ark.get_file_status(flow_hash).data:
-    print(ArkAPI.Ark.tapes_from_file_status(match))     # ["001234L5"]
+    # ["001234L5"]
+    print(ArkAPI.Ark.tapes_from_file_status(match))     
 ```
 
 Gibt eine `list` zurück, leer bei Disk-Backups.
@@ -334,7 +309,7 @@ Gibt eine `list` zurück, leer bei Disk-Backups.
 
 ## API-Wrapper-Funktionen
 
-Die zehn Operationen der Spezifikation, je eine Methode pro Endpunkt. Die `if`/`elif`-Ketten führen genau die Codes auf, die die Spezifikation für diesen Endpunkt dokumentiert. Jeder andere Code landet im `else` — siehe [Das Muster in den Snippets](#das-muster-in-den-snippets).
+Die zehn Operationen der API, je eine Methode pro Endpunkt. Die `if`/`elif`-Ketten führen genau die Codes auf, die die Spezifikation für diesen Endpunkt dokumentiert. Jeder andere Code landet im `else`.
 
 ### get_backups
 
@@ -369,7 +344,8 @@ result = ark.restore_backups({
 })
 
 if result.code == 200:
-    print("Job:", result.data)                  # restorejob_sovh0C
+    # restorejob_sovh0C
+    print("Job:", result.data)
 else:
     raise RuntimeError(result.message)
 ```
@@ -399,7 +375,9 @@ elif result.code == 404:
     # HASHES_NOT_RESTORABLE: kein Backup vorhanden oder Tape offline
     logging.error("nicht restaurierbar: %s", result.message)
 elif result.code == 400:
-    # INVALID_HASH, INVALID_DESTINATION, INVALID_SOURCE,
+    # INVALID_HASH,
+    # INVALID_DESTINATION,
+    # INVALID_SOURCE,
     # MISSING_REQUIRED_FIELD
     print(result.error, result.message)
 else:
@@ -418,7 +396,8 @@ Keine Argumente.
 result = ark.get_file_hash_database_status()
 
 if result.code == 200:
-    print(result.data["status"])            # importing, complete oder error
+    # importing, complete oder error
+    print(result.data["status"])           
     print(result.data["progress_complete"],
           "von", result.data["progress_estimated"])
 else:
@@ -441,9 +420,11 @@ if result.code == 200:
         print(match["storage_type"], match["pathname"], match["filename"])
         print(ArkAPI.Ark.tapes_from_file_status(match))
 elif result.code == 404:
-    print("keine Kopie in Ark")                 # HASH_NOT_FOUND
+    # HASH_NOT_FOUND
+    print("keine Kopie in Ark")                 
 elif result.code == 400:
-    print(result.error, result.message)         # INVALID_HASH
+    # INVALID_HASH
+    print(result.error, result.message)         
 else:
     raise RuntimeError(result.message)
 ```
@@ -462,13 +443,15 @@ else:
 result = ark.has_file_status("2:d41d8cd98f00b204e9800998ecf8427e")
 
 if result.code == 204:
-    os.remove(original)                         # Ark hat eine Kopie
+    # Ark hat eine Kopie
+    print("Kopie in Ark vorhanden")                         
 elif result.code == 404:
     print("keine Kopie in Ark")
 elif result.code == 400:
     print("Hash ungueltig:", result.message)
 else:
-    raise RuntimeError(result.message)          # nicht loeschen, Antwort unklar
+    # nicht loeschen, Antwort unklar
+    raise RuntimeError(result.message)          
 ```
 
 Diese Operation liefert **kein 200** — ein Vergleich auf 200 geht hier immer schief. Keiner der drei Codes hat einen Body, `data` ist immer `None` und `error` immer `""`. Die Auskunft steckt allein im Code.
@@ -489,7 +472,8 @@ if result.code == 200:
     gefunden = {match["hash"] for match in result.data}
     fehlt = [h for h in angefragt if h not in gefunden]
 elif result.code == 400:
-    print(result.error, result.message)   # INVALID_HASH, mindestens einer
+    # INVALID_HASH, mindestens einer
+    print(result.error, result.message)
 else:
     raise RuntimeError(result.message)
 ```
@@ -536,7 +520,8 @@ if result.code == 200:
         print(hit["filename"])
 elif result.code == 400:
     # nur bei search_mode="flow_hash" mit ungueltigem Hash
-    print(result.error, result.message)         # INVALID_HASH
+    # INVALID_HASH
+    print(result.error, result.message)        
 else:
     raise RuntimeError(result.message)
 ```
@@ -577,44 +562,9 @@ result.error       # maschinenlesbar, z. B. "INVALID_HASH", sonst ""
 print(result)      # "200 A list of statuses for files managed by Ark"
 ```
 
-### Das Muster in den Snippets
-
-Die API kennt genau vier Codes: **200, 204, 400, 404**. Welche davon eine Funktion liefern kann, steht in ihrem Snippet und in ihrem Docstring. Codes werden als Zahl verglichen, es gibt keine Code-Konstanten.
-
-```python
-if result.code == 200:
-    ...
-elif result.code == 404:
-    ...
-elif result.code == 400:
-    print(result.error, result.message)
-else:
-    raise RuntimeError(result.message)
-```
-
-Der `else`-Zweig ist kein Schmuck. Kommt ein Code, den die Funktion nicht aufführt, hat nicht Ark geantwortet, sondern ein Proxy, die Authentifizierung oder ein abgebrochener Socket. `message` sagt das dann ausdrücklich:
-
-```
-Statuscode 502 ist fuer diesen Endpunkt nicht dokumentiert: <html>...
-```
-
-`code == 0` heißt: keine verwertbare Antwort, siehe [Bekannte Fallstricke](#bekannte-fallstricke).
-
-### Schlanker Aufruf
-
-Für die Endpunkte, die laut Spezifikation nur 200 kennen, reicht der Stil aus `FlowAPI.metadata` — `last_return_code()` ist von `Connection` geerbt und funktioniert:
-
-```python
-backups = ark.get_backups().data
-if ark.last_return_code() != 200:
-    ...
-```
-
-Vorsicht bei den Komfort-Funktionen: `search_all_backups()` schickt pro Seite einen Request, `find_backup()` einen internen `get_backups()`. `last_return_code()` zeigt danach nur den **letzten** Request, `result.code` dagegen den Code, auf den die Funktion gelaufen ist. Bei mehreren Aufrufen hintereinander überschreibt jeder neue Request den Wert — `result.code` bleibt erhalten.
-
 ### Fehlerkennungen
 
-`result.error` ist die maschinenlesbare Kennung aus dem Fehlerobjekt der API, 1:1 übernommen. Der Wrapper vergleicht sie nirgends und definiert keine Konstanten dafür — verglichen wird im Caller gegen die Zeichenkette:
+`result.error` ist die maschinenlesbare Kennung aus dem Fehlerobjekt der API:
 
 ```python
 if result.code == 400:
@@ -624,7 +574,9 @@ if result.code == 400:
         ...             # Restore-Ziel falsch konfiguriert
 ```
 
-Ein Code sagt nicht, welche Kennung kommt: bei `restore_hashes()` kann 400 alle vier Ursachen bedeuten. Was welcher Endpunkt liefert:
+Ein Code sagt nicht, welche Kennung kommt: bei `restore_hashes()` kann 400 alle vier Ursachen bedeuten.
+
+Was welcher Endpunkt liefert:
 
 | Funktion | Code | `error` |
 | --- | --- | --- |
@@ -637,82 +589,6 @@ Ein Code sagt nicht, welche Kennung kommt: bei `restore_hashes()` kann 400 alle 
 | `has_file_status()` | 400, 404 | — kein Body, `error` ist immer `""` |
 
 Die Komfort-Funktionen erben die Werte der Funktion, die sie aufrufen.
-
-**Die Liste ist nicht abschließend.** Die Spezifikation führt diese Werte nur als Beispiel, nicht als `enum`. Ein `else`-Zweig, der einen unbekannten Wert protokolliert, ist deshalb Pflicht.
-
-### message ist immer ein String
-
-`message` ist bei Fehlern das `details`-Feld der API. Bei `restore_hashes()` und 404 ist `details` allerdings ein Objekt und keine Zeichenkette — es listet jeden gescheiterten Hash mit eigener Begründung:
-
-```json
-{
-  "code": 404,
-  "error": "HASHES_NOT_RESTORABLE",
-  "details": {
-    "files": [
-      {"flow_hash": "2:0000...", "error": "Hash not found in any source"}
-    ]
-  }
-}
-```
-
-Das ist eine Inkonsistenz der Spezifikation: dasselbe Schema deklariert `details` als `type: string` mit der Beschreibung „A string which can be presented to human users“. Nur das Beispiel zeigt ein Objekt.
-
-Kommt ein Objekt, wird es als JSON serialisiert. `message` ist damit in jedem Fall eine Zeichenkette, `result.message.strip()` läuft nicht ins Leere, und fürs Protokoll reicht `message` allein:
-
-```python
-if result.code == 404:
-    logging.error("Restore gescheitert: %s", result.message)
-    # -> {"files": [{"flow_hash": "2:0000...", "error": "Hash not ..."}]}
-```
-
-Wer die Einträge einzeln braucht, liest den Rohbody — der ist zeichengleich zur Serverantwort:
-
-```python
-if result.code == 404:
-    roh = json.loads(ark.last_response())
-    for eintrag in roh["details"]["files"]:
-        print(eintrag["flow_hash"], eintrag["error"])
-```
-
-Das Objekt landet **nicht** in `data`. `data` behält bei jedem Fehler den Leerwert der Funktion — und der ist je Endpunkt eine Liste, ein Dict, ein String oder `None`. Ein Objekt dort würde den Typ von `data` je Statuscode wechseln lassen.
-
-`error` wird umgekehrt behandelt: ist es keine Zeichenkette, bleibt es leer. Das Feld wird mit `==` gegen Kennungen verglichen, ein JSON-Text darin wäre irreführend.
-
----
-
-## Bekannte Fallstricke
-
-`code == 0` mit einer Meldung über ungültiges JSON fängt einen Bug der FlowAPI ab: bricht die Verbindung nach einem erfolgreichen Request weg, lässt `core.do_request()` den alten Statuscode stehen und legt eine Klartextmeldung in den Body. `getThatReturnsObj()` schickt die durch `json.loads()` und wirft einen `JSONDecodeError`. Der Wrapper nutzt `getThatReturnsObj()` deshalb nicht.
-
-`POST /filestatus/` braucht den abschließenden Slash. `HEAD /filestatus/{FileHash}` liefert 204, nie 200 — und 204 bedeutet dort **Treffer gefunden**, nicht „nichts da“.
-
-`POST /filestatus/` dokumentiert kein 404. Kommt trotzdem eins, meldet `message` den Code als für diesen Endpunkt undokumentiert.
-
-Bei `restore_hashes()` und 404 ist das `details`-Feld der API ein Objekt, obwohl das Schema eine Zeichenkette vorschreibt. `message` trägt es dann als JSON — siehe [message ist immer ein String](#message-ist-immer-ein-string).
-
-Der Ark-Port 8000 steht als Zahl in `connect()`. `FlowAPI.core` kennt dafür keine Konstante.
-
-## Interne Funktionen
-
-Alles mit `_` am Anfang ist intern und kann sich ohne Vorwarnung ändern: `_read_error()`, `_request()`, `_filter_backups()`.
-
-## Exportliste
-
-`ArkAPI/ark.py` erzeugt sein `__all__` in der letzten Zeile selbst.
-
-```python
-# --------- KEEP THIS LINE AT THE END ---------
-__all__ = [
-    name
-    for name in dir()
-    if name.startswith(("Ark", "ARK_", "create_"))
-]
-```
-
-Das sind drei Namen: `Ark`, `ArkResult` und `ARK_VERSION`. Aus `FlowAPI.core` kommt nur `Connection`, und weil dieser Name keinen der Prefixe trägt, braucht es dafür keinen Alias. Der Prefix `create_` greift derzeit nichts, weil `create_instance` an der Klasse hängt und nicht am Modul — er bleibt als Konvention für den Fall stehen, dass doch einmal eine Modulfunktion dazukommt. Das Paket kennt keine Konstanten: Statuscodes sind Zahlen, Fehlerkennungen und Aufzählungswerte sind Zeichenketten.
-
-**Neue öffentliche Namen müssen einen dieser Prefixe tragen**, sonst tauchen sie im Paket nicht auf.
 
 ## Referenz
 
