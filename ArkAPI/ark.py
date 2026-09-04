@@ -91,6 +91,7 @@ class Ark(Connection):
     def __init__(self):
         super().__init__()
         self._service_name = "ark"
+        self._content_type = "application/json"
 
     # --------- CONNECTION ---------
     @staticmethod
