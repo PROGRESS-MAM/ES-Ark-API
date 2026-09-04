@@ -1,0 +1,6 @@
+add mit sample code für process bar and final signal
+
+/job/active
+
+{"active_jobs": [{"progress_num": 1, "progress_txt": "0 B/0 B, Processing...", "current_name": "Restoration started", "name": "Restore Job", "verify_progress_num": 0, "current_status": "Enqueued: (0 of 0 files)", "current_speed": 0.0, "avg_speed": 0.0, "id": "restorejob_80XIRz-__restorejob__---2026-9-4-14-37-18-672061"}]}
+
