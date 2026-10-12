@@ -1,6 +1,314 @@
-add mit sample code für process bar and final signal
 
-/job/active
-
+Beispiel job/active:
 {"active_jobs": [{"progress_num": 1, "progress_txt": "0 B/0 B, Processing...", "current_name": "Restoration started", "name": "Restore Job", "verify_progress_num": 0, "current_status": "Enqueued: (0 of 0 files)", "current_speed": 0.0, "avg_speed": 0.0, "id": "restorejob_80XIRz-__restorejob__---2026-9-4-14-37-18-672061"}]}
 
+
+GET
+/notifications/init
+Body: -
+Funktion: _process_notification_display
+
+GET
+/notifications
+Body: -
+Funktion: _process_notification_display
+
+GET
+/license/status
+Body: -
+Funktion: setupButtons
+
+GET
+/destinations
+Body: -
+Funktion: _resetActionWidgets
+
+POST
+/schedule/scheduleString
+Body: schedule
+Funktion: _update_display_schedule
+
+POST
+/email/send
+Body: JSON inline
+Funktion: setupButtons
+
+GET
+/job/queue
+Body: -
+Funktion: refreshJobQueueDisplay
+
+GET
+/job/active
+Body: -
+Funktion: refresh_active_jobs
+
+GET
+/job/completed
+Body: -
+Funktion: refresh_completed_jobs
+
+GET
+/job/inactive
+Body: -
+Funktion: refresh_inactive_jobs
+
+GET
+/job/<id>
+Body: -
+Funktion: setupModifyJobDialog
+
+GET
+/job/actions/<id>
+Body: -
+Funktion: setupModifyJobDialog
+
+GET
+/job/details/<job_type>/<id>
+Body: -
+Funktion: refreshDetails
+
+PUT
+/job
+Body: ui_input
+Funktion: saveBackupJob
+
+PUT
+/job/modify/<id>
+Body: ui_input
+Funktion: modifyBackupJob
+
+POST
+/job/run/<id>
+Body: -
+Funktion: runJob
+
+POST
+/job/stop/<id>
+Body: -
+Funktion: stopJob
+
+DELETE
+/job/<id>
+Body: -
+Funktion: deleteJob
+
+GET
+/events/<last_event>
+Body: - (Long-Poll, 50s Timeout)
+Funktion: waitForEvents
+
+POST
+/restore/restoreTargets
+Body: selected_backups_json()
+Funktion: update_restore_targets_list
+
+POST
+/restore/getRestoreNames
+Body: selected_backups_json()
+Funktion: update_restore_names_list
+
+POST
+/restore/restoreBackups
+Body: restoreData
+Funktion: startRestore
+
+POST
+/restore/hashes
+Body: requestData
+Funktion: submitHashRestore
+
+GET
+/backup/contents/<backup_id>
+Body: -
+Funktion: list_backup_contents_table
+
+GET
+/backup/contents/<backup_id>/<page>
+Body: -
+Funktion: list_backup_contents_table
+
+POST
+/backup/getJSONBackupContents
+Body: {id}
+Funktion: list_backup_contents
+
+POST
+/backup/sessionFiles
+Body: {id, page_num}
+Funktion: list_session_files_table
+
+POST
+/backup/search
+Body: JSON-Filter
+Funktion: executeDiskSearch
+
+GET
+/backup/disk/search/status
+Body: -
+Funktion: checkDiskIndexStatus
+
+POST
+/backup/disk/search/prepare
+Body: -
+Funktion: triggerDiskIndexing
+
+DELETE
+/backup/removeBackups
+Body: deleteData
+Funktion: deleteDiskBackups
+
+GET
+/tape/license
+Body: -
+Funktion: refreshTapeLicenses
+
+GET
+/tape/servers
+Body: -
+Funktion: tape_alerts_table_setup_clicks
+
+GET
+/tape/getTapeServers
+Body: -
+Funktion: setupServerList
+
+GET
+/tape/getTapeBackups
+Body: -
+Funktion: refreshTapeBackups
+
+GET
+/tape/jobs/<server_id>
+Body: -
+Funktion: tape_job_table_setup_clicks
+
+GET
+/tape/log/<server_id>/<job_id>
+Body: -
+Funktion: tape_job_log_table_html
+
+GET
+/tape/alerts
+Body: -
+Funktion: _process_notification_display
+
+GET
+/tape/alerts/<server_id>
+Body: -
+Funktion: tape_alerts_table_setup_clicks
+
+PUT
+/tape/alerts/acknowledge/<server_id>/<alert_id>
+Body: -
+Funktion: tape_alerts_table_setup_clicks
+
+POST
+/tape/getPoolContents
+Body: {id, page_num}
+Funktion: list_pool_contents_table
+
+POST
+/tape/scanTapes
+Body: "" (leer)
+Funktion: scanTapes
+
+GET
+/tape/pool/<pool>
+Body: -
+Funktion: setupTapeWidgets
+
+PUT
+/tape/pool
+Body: poolData
+Funktion: savePool
+
+DELETE
+/tape/pool/<pool>
+Body: -
+Funktion: deletePool
+
+GET
+/tape/pool/<pool>/tapes
+Body: -
+Funktion: setup_saveTape
+
+PUT
+/tape/pool/<pool>/tapes
+Body: data
+Funktion: saveTape
+
+GET
+/tape/getAssignedTapes/<pool>
+Body: -
+Funktion: _setup_tape_draggable
+
+GET
+/tape/getUnassignedTapes/<pool>
+Body: -
+Funktion: _setup_tape_draggable
+
+GET
+/api/tape/library/tapes
+Body: - (offizieller /api-Namespace)
+Funktion: refreshLibraryStatus
+
+GET
+/disk/license
+Body: -
+Funktion: refreshDiskLicenses
+
+GET
+/disk/getDiskBackups
+Body: -
+Funktion: refreshDiskBackups
+
+GET
+/sources/mediaSpaces
+Body: -
+Funktion: setupActionSource_MediaSpaces
+
+GET
+/sources/mediaSpaceTypes
+Body: -
+Funktion: click_checkbox_of_source_options_by_id
+
+GET
+/sources/projectSpaces
+Body: -
+Funktion: click_checkbox_of_source_options_by_id
+
+GET
+/sources/privateSpaces
+Body: -
+Funktion: click_checkbox_of_source_options_by_id
+
+GET
+/sources/exchangeSpaces
+Body: -
+Funktion: click_checkbox_of_source_options_by_id
+
+GET
+/sources/flow
+Body: -
+Funktion: click_checkbox_of_source_options_by_id
+
+GET
+/sources/arkTapeDB
+Body: -
+Funktion: click_checkbox_of_source_options_by_id
+
+GET
+/download/csv?<params>
+Body: - (kein AJAX, Direkt-Navigation)
+Funktion: setupButtons
+
+GET
+/download/search_csv?<params>
+Body: - (kein AJAX, Direkt-Navigation)
+Funktion: setupButtons
+
+GET
+/login/
+Body: - (Redirect bei HTTP 401)
+Funktion: waitForEvents (Fehlerzweig)
