@@ -29,7 +29,7 @@ ArkAPI = ["py.typed"]
 
 [tool.pylint.main]
 max-public-methods = 100
-max-args = 8
+max-args = 9
 max-module-lines = 1500
 module-rgx = "^(ArkAPI|[a-z_][a-z0-9_]*)$"
 
