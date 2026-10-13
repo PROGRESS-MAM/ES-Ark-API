@@ -1,7 +1,7 @@
 """
 Prueft Queue, Abbruch und Fehlerquellen an mehreren echten Restores.
 
-Ablauf: Clips ueber den Searcher finden, Restores pruefen, nach Rueckfrage
+Ablauf: Clips ueber den Searcher finden, Restores pruefen, ohne Rueckfrage
 alle starten, die Queue mehrmals lesen, einen Lauf stoppen und alle
 moeglichen Fehlerquellen dieses Laufs abfragen. Die uebrigen Laeufe bleiben
 unberuehrt. Jede Antwort landet als JSON in ark_probe/<Zeitstempel>/.
@@ -11,6 +11,7 @@ unberuehrt. Jede Antwort landet als JSON in ark_probe/<Zeitstempel>/.
 
 # --------- IMPORTS ---------
 import json
+import sys
 import time
 from datetime import datetime
 from itertools import count
@@ -43,6 +44,21 @@ tape_log_limit = 3
 
 
 # --------- FUNC OUTPUT ---------
+class Tee:
+    """Konsolenausgabe zusaetzlich in eine Datei schreiben"""
+
+    def __init__(self, stream, path: Path):
+        self.stream, self.file = stream, path.open("a", encoding="utf-8")
+
+    def write(self, text: str) -> int:
+        self.file.write(text)
+        self.file.flush()
+        return self.stream.write(text)
+
+    def flush(self) -> None:
+        self.stream.flush()
+
+
 def shape(value, depth: int = 0) -> str:
     """Kurze Strukturbeschreibung fuer die Konsole"""
     if isinstance(value, list):
@@ -289,6 +305,7 @@ def main():
     out_dir = out_root / datetime.now().strftime("%Y%m%dT%H%M%S")
     out_dir.mkdir(parents=True, exist_ok=True)
     save = make_saver(out_dir)
+    sys.stdout = Tee(sys.stdout, out_dir / "console.txt")
     print(f"{app_name} {app_version}: Antworten nach {out_dir}")
 
     print(f"1/5 Clips {', '.join(clip_ids)} suchen")
@@ -298,11 +315,7 @@ def main():
         return
 
     print("2/5 Restores starten")
-    answer = input(f"      {len(clips)} Job(s) mit je 1 Datei nach '{mediaspace}/{restore_path}' starten und "
-                   f"{stop_clip_id} danach stoppen? [j/N] ")
-    if answer.strip().casefold() != "j":
-        print("      abgebrochen, kein Restore gestartet")
-        return
+    print(f"      {len(clips)} Job(s) mit je 1 Datei nach '{mediaspace}/{restore_path}', {stop_clip_id} wird danach gestoppt")
     last_notification = last_notification_id(ark, save)
     call(ark, save, "get_job_queue", quiet=True)
     runs = start_jobs(ark, save, clips)
